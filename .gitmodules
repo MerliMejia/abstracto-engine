@@ -1,0 +1,12 @@
+[submodule "systems/abstracto-scene"]
+	path = systems/abstracto-scene
+	url = git@github.com:MerliMejia/abstracto-scene.git
+[submodule "systems/abstracto-animation"]
+	path = systems/abstracto-animation
+	url = git@github.com:MerliMejia/abstracto-animation.git
+[submodule "systems/abstracto"]
+	path = systems/abstracto
+	url = git@github.com:MerliMejia/Abstracto.git
+[submodule "systems/abstracto-assets"]
+	path = systems/abstracto-assets
+	url = git@github.com:MerliMejia/abstracto-assets.git

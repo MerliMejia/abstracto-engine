@@ -112,6 +112,7 @@ private:
 
   struct TerrainEditHit {
     size_t terrainIndex = 0;
+    glm::vec3 localPosition{0.0f};
     glm::vec3 worldPosition{0.0f};
     glm::vec3 worldNormal{0.0f, 1.0f, 0.0f};
   };
@@ -328,7 +329,8 @@ private:
            lhs.noiseOctaves == rhs.noiseOctaves &&
            lhs.noisePersistence == rhs.noisePersistence &&
            lhs.noiseLacunarity == rhs.noiseLacunarity &&
-           lhs.noiseSeed == rhs.noiseSeed;
+           lhs.noiseSeed == rhs.noiseSeed &&
+           lhs.heightOffsets == rhs.heightOffsets;
   }
 
   static glm::mat4 basisTransform(const glm::vec3 &position,
@@ -476,8 +478,12 @@ private:
     const glm::vec3 localDirection = glm::normalize(glm::vec3(
         inverseTerrainModel * glm::vec4(rayDirection, 0.0f)));
 
-    const float heightBound =
-        std::max(std::abs(terrainAsset.terrainConfig.heightScale), 0.5f) + 1.0f;
+    const float heightBound = std::max(
+                                  std::max(std::abs(terrainAsset.terrainConfig.heightScale),
+                                           TerrainGenerator::maxHeightOffsetMagnitude(
+                                               terrainAsset.terrainConfig)),
+                                  0.5f) +
+                              1.0f;
     const auto hitRange = intersectRayAabb(
         localOrigin, localDirection,
         {-terrainAsset.terrainConfig.sizeX * 0.5f, -heightBound,
@@ -548,6 +554,7 @@ private:
           glm::transpose(glm::inverse(glm::mat3(terrainModel))) * localNormal);
       return TerrainEditHit{
           .terrainIndex = terrainIndex,
+          .localPosition = localPoint,
           .worldPosition = worldPoint,
           .worldNormal = worldNormal,
       };
@@ -607,6 +614,91 @@ private:
     debugOverlayPass->setCustomVisible(true);
   }
 
+  void loadSceneAssetModel(size_t index) {
+    if (index >= sceneAssets.size() || index >= sceneAssetModels.size()) {
+      return;
+    }
+
+    const SceneAssetInstance &sceneAsset = sceneAssets[index];
+    if (sceneAsset.kind == SceneAssetKind::Terrain) {
+      std::vector<ImportedMaterialData> existingMaterials;
+      if (sceneAssetModels[index].modelAsset() != nullptr) {
+        existingMaterials = sceneAssetModels[index].materials();
+      }
+      sceneAssetModels[index].loadTerrain(
+          sceneAsset.terrainConfig,
+          AppSceneController::sceneAssetName(sceneAsset, index),
+          commandContext(), deviceContext(), sceneDescriptorSetLayout(),
+          sceneSecondaryDescriptorSetLayout(), frameGeometryUniforms, sampler,
+          DEFAULT_ENGINE_MAX_FRAMES_IN_FLIGHT,
+          [existingMaterials = std::move(existingMaterials)](
+              std::vector<ImportedMaterialData> &materials) {
+            if (existingMaterials.empty() || materials.empty()) {
+              return;
+            }
+            const size_t materialCount =
+                std::min(existingMaterials.size(), materials.size());
+            for (size_t materialIndex = 0; materialIndex < materialCount;
+                 ++materialIndex) {
+              materials[materialIndex] = existingMaterials[materialIndex];
+            }
+          });
+      return;
+    }
+
+    if (sceneAsset.assetPath.empty()) {
+      return;
+    }
+    sceneAssetModels[index].loadFromFile(
+        sceneAsset.assetPath, commandContext(), deviceContext(),
+        sceneDescriptorSetLayout(), sceneSecondaryDescriptorSetLayout(),
+        frameGeometryUniforms, sampler, DEFAULT_ENGINE_MAX_FRAMES_IN_FLIGHT);
+    if (engineConfig.onSceneAssetLoaded != nullptr &&
+        sceneAssetModels[index].modelAsset() != nullptr) {
+      engineConfig.onSceneAssetLoaded(sceneAsset,
+                                      *sceneAssetModels[index].modelAsset());
+    }
+  }
+
+  void reloadTerrainAsset(size_t terrainIndex) {
+    if (terrainIndex >= sceneAssets.size() || terrainIndex >= sceneAssetModels.size()) {
+      return;
+    }
+
+    backend.waitIdle();
+    loadSceneAssetModel(terrainIndex);
+    sceneDefinition.assets = sceneAssets;
+    syncSceneObjectsWithAssets();
+    rebuildSceneRenderItems();
+  }
+
+  void updateTerrainSculpting(const std::optional<TerrainEditHit> &hit,
+                              float deltaSeconds) {
+    ImGuiIO &io = ImGui::GetIO();
+    const bool leftMouseDown =
+        glfwGetMouseButton(window.handle(), GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+    if (io.WantCaptureMouse) {
+      return;
+    }
+
+    if (!leftMouseDown || !hit.has_value()) {
+      return;
+    }
+
+    SceneAssetInstance &terrainAsset = sceneAssets[hit->terrainIndex];
+    const float sculptSpeedPerSecond = 2.4f;
+    const float heightStep = (terrainAsset.terrainBrushLowerMode ? -1.0f : 1.0f) *
+                             sculptSpeedPerSecond *
+                             std::max(deltaSeconds, 1.0f / 240.0f);
+    if (!TerrainGenerator::applyBrush(
+            terrainAsset.terrainConfig, {hit->localPosition.x, hit->localPosition.z},
+            terrainAsset.terrainBrushRadius, heightStep)) {
+      return;
+    }
+
+    reloadTerrainAsset(hit->terrainIndex);
+  }
+
   void updateTerrainEditOverlay(const glm::mat4 &view, const glm::mat4 &proj,
                                 float deltaSeconds) {
     if (debugOverlayPass == nullptr) {
@@ -623,6 +715,7 @@ private:
     SceneAssetInstance &terrainAsset = sceneAssets[hit->terrainIndex];
     ImGuiIO &io = ImGui::GetIO();
     bool radiusChanged = false;
+    bool brushModeChanged = false;
     if (!io.WantCaptureKeyboard) {
       const float radiusStep = std::max(deltaSeconds * 4.0f, 0.02f);
       if (glfwGetKey(window.handle(), GLFW_KEY_UP) == GLFW_PRESS) {
@@ -635,21 +728,34 @@ private:
             terrainAsset.terrainBrushRadius - radiusStep, 0.05f);
         radiusChanged = true;
       }
+      if (glfwGetKey(window.handle(), GLFW_KEY_LEFT) == GLFW_PRESS &&
+          !terrainAsset.terrainBrushLowerMode) {
+        terrainAsset.terrainBrushLowerMode = true;
+        brushModeChanged = true;
+      }
+      if (glfwGetKey(window.handle(), GLFW_KEY_RIGHT) == GLFW_PRESS &&
+          terrainAsset.terrainBrushLowerMode) {
+        terrainAsset.terrainBrushLowerMode = false;
+        brushModeChanged = true;
+      }
     }
 
-    if (radiusChanged) {
+    if (radiusChanged || brushModeChanged) {
       sceneDefinition.assets = sceneAssets;
     }
 
     const float lineHeight =
         std::max(terrainAsset.terrainBrushRadius * 0.75f, 0.6f);
+    const glm::vec4 brushColor = terrainAsset.terrainBrushLowerMode
+                                     ? glm::vec4(0.92f, 0.28f, 0.22f, 1.0f)
+                                     : glm::vec4(0.95f, 0.85f, 0.2f, 1.0f);
     debugOverlayPass->setToolMarkerMesh(terrainBrushIndicatorMesh);
     debugOverlayPass->setToolMarkers({DebugOverlayInstance{
         .model = basisTransform(
             hit->worldPosition + hit->worldNormal * 0.01f, hit->worldNormal,
             {terrainAsset.terrainBrushRadius, lineHeight,
              terrainAsset.terrainBrushRadius}),
-        .color = {0.95f, 0.85f, 0.2f, 1.0f},
+        .color = brushColor,
     }});
     debugOverlayPass->setToolVisible(true);
   }
@@ -823,30 +929,7 @@ private:
     sceneAssetModels.resize(sceneAssets.size());
 
     for (size_t index = 0; index < sceneAssets.size(); ++index) {
-      const auto &sceneAsset = sceneAssets[index];
-      if (sceneAsset.kind == SceneAssetKind::Terrain) {
-        sceneAssetModels[index].loadTerrain(
-            sceneAsset.terrainConfig,
-            AppSceneController::sceneAssetName(sceneAsset, index),
-            commandContext(), deviceContext(), sceneDescriptorSetLayout(),
-            sceneSecondaryDescriptorSetLayout(), frameGeometryUniforms,
-            sampler, DEFAULT_ENGINE_MAX_FRAMES_IN_FLIGHT);
-        continue;
-      }
-
-      if (sceneAsset.assetPath.empty()) {
-        continue;
-      }
-      sceneAssetModels[index].loadFromFile(
-          sceneAsset.assetPath, commandContext(), deviceContext(),
-          sceneDescriptorSetLayout(), sceneSecondaryDescriptorSetLayout(),
-          frameGeometryUniforms, sampler,
-          DEFAULT_ENGINE_MAX_FRAMES_IN_FLIGHT);
-      if (engineConfig.onSceneAssetLoaded != nullptr &&
-          sceneAssetModels[index].modelAsset() != nullptr) {
-        engineConfig.onSceneAssetLoaded(
-            sceneAsset, *sceneAssetModels[index].modelAsset());
-      }
+      loadSceneAssetModel(index);
     }
     syncSceneObjectsWithAssets();
     rebuildSceneRenderItems();
@@ -1130,6 +1213,9 @@ private:
           AppSceneController::sceneObjectsAnchor(debugUiSettings),
           debugUiSettings.lightMarkerScale));
     }
+    updateTerrainSculpting(
+        raycastTerrainFromCursor(geometryUniformData.view, geometryUniformData.proj),
+        deltaSeconds);
     updateTerrainWireframeOverlay();
     updateTerrainEditOverlay(geometryUniformData.view, geometryUniformData.proj,
                              deltaSeconds);

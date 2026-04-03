@@ -51,6 +51,10 @@ static inline SceneObject sceneObjectFromJson(const json &value) {
 }
 
 static inline json terrainConfigToJson(const TerrainConfig &config) {
+  json heightOffsets = json::array();
+  for (const float offset : config.heightOffsets) {
+    heightOffsets.push_back(offset);
+  }
   return {
       {"sizeX", config.sizeX},
       {"sizeZ", config.sizeZ},
@@ -63,6 +67,7 @@ static inline json terrainConfigToJson(const TerrainConfig &config) {
       {"noisePersistence", config.noisePersistence},
       {"noiseLacunarity", config.noiseLacunarity},
       {"noiseSeed", config.noiseSeed},
+      {"heightOffsets", std::move(heightOffsets)},
   };
 }
 
@@ -87,6 +92,13 @@ static inline TerrainConfig terrainConfigFromJson(const json &value) {
   config.noiseLacunarity =
       value.value("noiseLacunarity", config.noiseLacunarity);
   config.noiseSeed = value.value("noiseSeed", config.noiseSeed);
+  if (value.contains("heightOffsets") && value["heightOffsets"].is_array()) {
+    config.heightOffsets.clear();
+    config.heightOffsets.reserve(value["heightOffsets"].size());
+    for (const auto &offsetValue : value["heightOffsets"]) {
+      config.heightOffsets.push_back(offsetValue.get<float>());
+    }
+  }
   return config;
 }
 
@@ -102,6 +114,7 @@ static inline json sceneAssetToJson(const SceneAssetInstance &sceneAsset) {
       {"terrainWireframeVisible", sceneAsset.terrainWireframeVisible},
       {"terrainEditMode", sceneAsset.terrainEditMode},
       {"terrainBrushRadius", sceneAsset.terrainBrushRadius},
+      {"terrainBrushLowerMode", sceneAsset.terrainBrushLowerMode},
   };
   if (sceneAsset.kind == SceneAssetKind::Terrain) {
     value["terrainConfig"] = terrainConfigToJson(sceneAsset.terrainConfig);
@@ -131,6 +144,8 @@ static inline SceneAssetInstance sceneAssetFromJson(const json &value) {
       value.value("terrainEditMode", sceneAsset.terrainEditMode);
   sceneAsset.terrainBrushRadius = std::max(
       value.value("terrainBrushRadius", sceneAsset.terrainBrushRadius), 0.05f);
+  sceneAsset.terrainBrushLowerMode = value.value(
+      "terrainBrushLowerMode", sceneAsset.terrainBrushLowerMode);
   if (sceneAsset.kind == SceneAssetKind::Terrain &&
       value.contains("terrainConfig") && value["terrainConfig"].is_object()) {
     sceneAsset.terrainConfig = terrainConfigFromJson(value["terrainConfig"]);

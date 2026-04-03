@@ -36,6 +36,7 @@
 #include <cmath>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <utility>
 
 class DefaultEngineApp {
@@ -86,6 +87,7 @@ private:
   TypedMesh<Vertex> boneSegmentMesh;
   TypedMesh<Vertex> boneJointMarkerMesh;
   TypedMesh<Vertex> terrainWireframeMesh;
+  TypedMesh<Vertex> terrainBrushIndicatorMesh;
   FrameGeometryUniforms frameGeometryUniforms;
   Sampler sampler;
   ImageBasedLighting imageBasedLighting;
@@ -107,6 +109,12 @@ private:
   bool debugUiToggleHeld = false;
   int activeTerrainWireframeIndex = -1;
   std::optional<TerrainConfig> activeTerrainWireframeConfig;
+
+  struct TerrainEditHit {
+    size_t terrainIndex = 0;
+    glm::vec3 worldPosition{0.0f};
+    glm::vec3 worldNormal{0.0f, 1.0f, 0.0f};
+  };
 
   DeviceContext &deviceContext() { return backend.device(); }
   SwapchainContext &swapchainContext() { return backend.swapchain(); }
@@ -323,6 +331,231 @@ private:
            lhs.noiseSeed == rhs.noiseSeed;
   }
 
+  static glm::mat4 basisTransform(const glm::vec3 &position,
+                                  const glm::vec3 &normal,
+                                  const glm::vec3 &scale) {
+    const glm::vec3 up = glm::normalize(
+        glm::length(normal) > 1e-6f ? normal : glm::vec3(0.0f, 1.0f, 0.0f));
+    const glm::vec3 fallbackTangent =
+        std::abs(glm::dot(up, glm::vec3(0.0f, 0.0f, 1.0f))) > 0.98f
+            ? glm::vec3(1.0f, 0.0f, 0.0f)
+            : glm::vec3(0.0f, 0.0f, 1.0f);
+    const glm::vec3 tangent = glm::normalize(glm::cross(fallbackTangent, up));
+    const glm::vec3 bitangent = glm::normalize(glm::cross(up, tangent));
+
+    glm::mat4 transform(1.0f);
+    transform[0] = glm::vec4(tangent * scale.x, 0.0f);
+    transform[1] = glm::vec4(up * scale.y, 0.0f);
+    transform[2] = glm::vec4(bitangent * scale.z, 0.0f);
+    transform[3] = glm::vec4(position, 1.0f);
+    return transform;
+  }
+
+  static glm::vec3 terrainLocalNormal(const TerrainConfig &config, float x,
+                                      float z) {
+    const float epsilon =
+        std::max(std::min(config.sizeX, config.sizeZ) / 512.0f, 0.01f);
+    const float heightLeft =
+        TerrainGenerator::sampleHeight(config, x - epsilon, z);
+    const float heightRight =
+        TerrainGenerator::sampleHeight(config, x + epsilon, z);
+    const float heightBack =
+        TerrainGenerator::sampleHeight(config, x, z - epsilon);
+    const float heightFront =
+        TerrainGenerator::sampleHeight(config, x, z + epsilon);
+    return glm::normalize(glm::vec3(heightLeft - heightRight, epsilon * 2.0f,
+                                    heightBack - heightFront));
+  }
+
+  static std::optional<glm::vec2>
+  intersectRayAabb(const glm::vec3 &origin, const glm::vec3 &direction,
+                   const glm::vec3 &boundsMin, const glm::vec3 &boundsMax) {
+    float tMin = 0.0f;
+    float tMax = std::numeric_limits<float>::max();
+
+    for (int axis = 0; axis < 3; ++axis) {
+      if (std::abs(direction[axis]) <= 1e-6f) {
+        if (origin[axis] < boundsMin[axis] || origin[axis] > boundsMax[axis]) {
+          return std::nullopt;
+        }
+        continue;
+      }
+
+      const float invDirection = 1.0f / direction[axis];
+      float t0 = (boundsMin[axis] - origin[axis]) * invDirection;
+      float t1 = (boundsMax[axis] - origin[axis]) * invDirection;
+      if (t0 > t1) {
+        std::swap(t0, t1);
+      }
+
+      tMin = std::max(tMin, t0);
+      tMax = std::min(tMax, t1);
+      if (tMin > tMax) {
+        return std::nullopt;
+      }
+    }
+
+    return glm::vec2(tMin, tMax);
+  }
+
+  std::optional<TerrainEditHit>
+  raycastTerrainFromCursor(const glm::mat4 &view,
+                           const glm::mat4 &proj) {
+    ImGuiIO &io = ImGui::GetIO();
+    if (io.WantCaptureMouse && !debugUiSettings.cameraLookActive) {
+      return std::nullopt;
+    }
+
+    int activeTerrainIndex = -1;
+    const int selectedIndex = debugUiSettings.selectedObjectIndex;
+    if (selectedIndex >= 0 &&
+        static_cast<size_t>(selectedIndex) < sceneAssets.size() &&
+        static_cast<size_t>(selectedIndex) < debugUiSettings.sceneObjects.size() &&
+        sceneAssets[static_cast<size_t>(selectedIndex)].kind ==
+            SceneAssetKind::Terrain &&
+        sceneAssets[static_cast<size_t>(selectedIndex)].terrainEditMode &&
+        debugUiSettings.sceneObjects[static_cast<size_t>(selectedIndex)].visible) {
+      activeTerrainIndex = selectedIndex;
+    } else {
+      for (size_t index = 0;
+           index < sceneAssets.size() &&
+           index < debugUiSettings.sceneObjects.size(); ++index) {
+        if (sceneAssets[index].kind != SceneAssetKind::Terrain ||
+            !sceneAssets[index].terrainEditMode ||
+            !debugUiSettings.sceneObjects[index].visible) {
+          continue;
+        }
+        activeTerrainIndex = static_cast<int>(index);
+        break;
+      }
+    }
+
+    if (activeTerrainIndex < 0) {
+      return std::nullopt;
+    }
+
+    double cursorX = 0.0;
+    double cursorY = 0.0;
+    glfwGetCursorPos(window.handle(), &cursorX, &cursorY);
+
+    const WindowSize windowSize = window.windowSize();
+    if (windowSize.width == 0 || windowSize.height == 0) {
+      return std::nullopt;
+    }
+
+    const float ndcX =
+        static_cast<float>((cursorX / static_cast<double>(windowSize.width)) *
+                               2.0 -
+                           1.0);
+    const float ndcY =
+        static_cast<float>((cursorY / static_cast<double>(windowSize.height)) *
+                               2.0 -
+                           1.0);
+    const glm::mat4 inverseViewProj = glm::inverse(proj * view);
+    const glm::vec4 nearWorld =
+        inverseViewProj * glm::vec4(ndcX, ndcY, 0.0f, 1.0f);
+    const glm::vec4 farWorld =
+        inverseViewProj * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+    if (std::abs(nearWorld.w) <= 1e-6f || std::abs(farWorld.w) <= 1e-6f) {
+      return std::nullopt;
+    }
+
+    const glm::vec3 rayOrigin = debugUiSettings.cameraPosition;
+    const glm::vec3 rayNear = glm::vec3(nearWorld) / nearWorld.w;
+    const glm::vec3 rayFar = glm::vec3(farWorld) / farWorld.w;
+    const glm::vec3 rayDirection = glm::normalize(rayFar - rayNear);
+
+    const size_t terrainIndex = static_cast<size_t>(activeTerrainIndex);
+    const SceneAssetInstance &terrainAsset = sceneAssets[terrainIndex];
+    const glm::mat4 terrainModel =
+        AppSceneController::sceneTransformMatrix(
+            debugUiSettings.sceneObjects[terrainIndex].transform);
+    const glm::mat4 inverseTerrainModel = glm::inverse(terrainModel);
+    const glm::vec3 localOrigin =
+        glm::vec3(inverseTerrainModel * glm::vec4(rayOrigin, 1.0f));
+    const glm::vec3 localDirection = glm::normalize(glm::vec3(
+        inverseTerrainModel * glm::vec4(rayDirection, 0.0f)));
+
+    const float heightBound =
+        std::max(std::abs(terrainAsset.terrainConfig.heightScale), 0.5f) + 1.0f;
+    const auto hitRange = intersectRayAabb(
+        localOrigin, localDirection,
+        {-terrainAsset.terrainConfig.sizeX * 0.5f, -heightBound,
+         -terrainAsset.terrainConfig.sizeZ * 0.5f},
+        {terrainAsset.terrainConfig.sizeX * 0.5f, heightBound,
+         terrainAsset.terrainConfig.sizeZ * 0.5f});
+    if (!hitRange.has_value()) {
+      return std::nullopt;
+    }
+
+    const float startT = std::max(hitRange->x, 0.0f);
+    const float endT = hitRange->y;
+    const uint32_t stepCount = std::max(
+        terrainAsset.terrainConfig.xSegments + terrainAsset.terrainConfig.zSegments,
+        64u);
+    float previousT = startT;
+    glm::vec3 previousPoint = localOrigin + localDirection * previousT;
+    float previousDelta =
+        previousPoint.y - TerrainGenerator::sampleHeight(
+                              terrainAsset.terrainConfig, previousPoint.x,
+                              previousPoint.z);
+
+    for (uint32_t step = 1; step <= stepCount; ++step) {
+      const float alpha =
+          static_cast<float>(step) / static_cast<float>(stepCount);
+      const float currentT = glm::mix(startT, endT, alpha);
+      const glm::vec3 currentPoint = localOrigin + localDirection * currentT;
+      const float currentDelta =
+          currentPoint.y - TerrainGenerator::sampleHeight(
+                               terrainAsset.terrainConfig, currentPoint.x,
+                               currentPoint.z);
+      const bool crossedSurface =
+          (previousDelta >= 0.0f && currentDelta <= 0.0f) ||
+          std::abs(currentDelta) <= 1e-4f;
+      if (!crossedSurface) {
+        previousT = currentT;
+        previousPoint = currentPoint;
+        previousDelta = currentDelta;
+        continue;
+      }
+
+      float lowT = previousT;
+      float highT = currentT;
+      for (int iteration = 0; iteration < 10; ++iteration) {
+        const float midT = 0.5f * (lowT + highT);
+        const glm::vec3 midPoint = localOrigin + localDirection * midT;
+        const float midDelta =
+            midPoint.y - TerrainGenerator::sampleHeight(
+                             terrainAsset.terrainConfig, midPoint.x, midPoint.z);
+        if (midDelta > 0.0f) {
+          lowT = midT;
+        } else {
+          highT = midT;
+        }
+      }
+
+      const float hitT = 0.5f * (lowT + highT);
+      const glm::vec3 localHit = localOrigin + localDirection * hitT;
+      const float hitHeight = TerrainGenerator::sampleHeight(
+          terrainAsset.terrainConfig, localHit.x, localHit.z);
+      const glm::vec3 localPoint(localHit.x, hitHeight, localHit.z);
+      const glm::vec3 localNormal =
+          terrainLocalNormal(terrainAsset.terrainConfig, localPoint.x,
+                             localPoint.z);
+      const glm::vec3 worldPoint =
+          glm::vec3(terrainModel * glm::vec4(localPoint, 1.0f));
+      const glm::vec3 worldNormal = glm::normalize(
+          glm::transpose(glm::inverse(glm::mat3(terrainModel))) * localNormal);
+      return TerrainEditHit{
+          .terrainIndex = terrainIndex,
+          .worldPosition = worldPoint,
+          .worldNormal = worldNormal,
+      };
+    }
+
+    return std::nullopt;
+  }
+
   void updateTerrainWireframeOverlay() {
     if (debugOverlayPass == nullptr) {
       return;
@@ -372,6 +605,53 @@ private:
         .color = {0.08f, 0.08f, 0.08f, 1.0f},
     }});
     debugOverlayPass->setCustomVisible(true);
+  }
+
+  void updateTerrainEditOverlay(const glm::mat4 &view, const glm::mat4 &proj,
+                                float deltaSeconds) {
+    if (debugOverlayPass == nullptr) {
+      return;
+    }
+
+    const auto hit = raycastTerrainFromCursor(view, proj);
+    if (!hit.has_value()) {
+      debugOverlayPass->setToolVisible(false);
+      debugOverlayPass->setToolMarkers({});
+      return;
+    }
+
+    SceneAssetInstance &terrainAsset = sceneAssets[hit->terrainIndex];
+    ImGuiIO &io = ImGui::GetIO();
+    bool radiusChanged = false;
+    if (!io.WantCaptureKeyboard) {
+      const float radiusStep = std::max(deltaSeconds * 4.0f, 0.02f);
+      if (glfwGetKey(window.handle(), GLFW_KEY_UP) == GLFW_PRESS) {
+        terrainAsset.terrainBrushRadius = std::min(
+            terrainAsset.terrainBrushRadius + radiusStep, 128.0f);
+        radiusChanged = true;
+      }
+      if (glfwGetKey(window.handle(), GLFW_KEY_DOWN) == GLFW_PRESS) {
+        terrainAsset.terrainBrushRadius = std::max(
+            terrainAsset.terrainBrushRadius - radiusStep, 0.05f);
+        radiusChanged = true;
+      }
+    }
+
+    if (radiusChanged) {
+      sceneDefinition.assets = sceneAssets;
+    }
+
+    const float lineHeight =
+        std::max(terrainAsset.terrainBrushRadius * 0.75f, 0.6f);
+    debugOverlayPass->setToolMarkerMesh(terrainBrushIndicatorMesh);
+    debugOverlayPass->setToolMarkers({DebugOverlayInstance{
+        .model = basisTransform(
+            hit->worldPosition + hit->worldNormal * 0.01f, hit->worldNormal,
+            {terrainAsset.terrainBrushRadius, lineHeight,
+             terrainAsset.terrainBrushRadius}),
+        .color = {0.95f, 0.85f, 0.2f, 1.0f},
+    }});
+    debugOverlayPass->setToolVisible(true);
   }
 
   void rebuildSceneRenderItems() {
@@ -652,6 +932,12 @@ private:
     boneJointMarkerMesh.createVertexBuffer(commandContext(), deviceContext());
     boneJointMarkerMesh.createIndexBuffer(commandContext(), deviceContext());
 
+    terrainBrushIndicatorMesh = buildTerrainBrushIndicatorMesh();
+    terrainBrushIndicatorMesh.createVertexBuffer(commandContext(),
+                                                deviceContext());
+    terrainBrushIndicatorMesh.createIndexBuffer(commandContext(),
+                                               deviceContext());
+
     if (debugUiSettings.syncSkySunToLight) {
       syncProceduralSkySunWithLight();
     }
@@ -845,6 +1131,8 @@ private:
           debugUiSettings.lightMarkerScale));
     }
     updateTerrainWireframeOverlay();
+    updateTerrainEditOverlay(geometryUniformData.view, geometryUniformData.proj,
+                             deltaSeconds);
     updateBoneOverlay();
     if (tonemapPass != nullptr) {
       const glm::vec3 lightRadiance = estimatedSceneLightRadiance();

@@ -4,6 +4,8 @@
 #include "world/Terrain.h"
 #include <algorithm>
 #include <cstdint>
+#include <cmath>
+#include <glm/gtc/constants.hpp>
 #include <unordered_set>
 
 inline TypedMesh<Vertex> buildTerrainWireframeMesh(const TerrainConfig &config) {
@@ -50,5 +52,49 @@ inline TypedMesh<Vertex> buildTerrainWireframeMesh(const TerrainConfig &config) 
   }
 
   mesh.setGeometry(std::move(vertices), std::move(lineIndices));
+  return mesh;
+}
+
+inline TypedMesh<Vertex> buildTerrainBrushIndicatorMesh() {
+  TypedMesh<Vertex> mesh;
+  const glm::vec3 color(1.0f, 1.0f, 1.0f);
+  constexpr uint32_t segmentCount = 48;
+
+  std::vector<Vertex> vertices;
+  std::vector<uint32_t> indices;
+  vertices.reserve(segmentCount + 2);
+  indices.reserve(segmentCount * 2 + 2);
+
+  for (uint32_t index = 0; index < segmentCount; ++index) {
+    const float angle =
+        glm::two_pi<float>() * static_cast<float>(index) /
+        static_cast<float>(segmentCount);
+    vertices.push_back(Vertex{
+        .pos = {std::cos(angle), 0.0f, std::sin(angle)},
+        .color = color,
+        .texCoord = {0.0f, 0.0f},
+    });
+  }
+
+  for (uint32_t index = 0; index < segmentCount; ++index) {
+    indices.push_back(index);
+    indices.push_back((index + 1) % segmentCount);
+  }
+
+  const uint32_t lineStart = static_cast<uint32_t>(vertices.size());
+  vertices.push_back(Vertex{
+      .pos = {0.0f, 0.0f, 0.0f},
+      .color = color,
+      .texCoord = {0.0f, 0.0f},
+  });
+  vertices.push_back(Vertex{
+      .pos = {0.0f, 1.0f, 0.0f},
+      .color = color,
+      .texCoord = {0.0f, 0.0f},
+  });
+  indices.push_back(lineStart);
+  indices.push_back(lineStart + 1);
+
+  mesh.setGeometry(std::move(vertices), std::move(indices));
   return mesh;
 }

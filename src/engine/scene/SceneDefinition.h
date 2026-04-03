@@ -30,6 +30,8 @@ struct SceneAssetInstance {
   bool visible = true;
   TerrainConfig terrainConfig{};
   bool terrainWireframeVisible = false;
+  bool terrainEditMode = false;
+  float terrainBrushRadius = 1.5f;
 
   static SceneAssetInstance fromAsset(std::string assetPathValue) {
     return SceneAssetInstance{

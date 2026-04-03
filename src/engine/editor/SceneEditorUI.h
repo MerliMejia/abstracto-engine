@@ -432,6 +432,14 @@ private:
 
     result.assetChanged |=
         ImGui::Checkbox("Wireframe", &sceneAsset->terrainWireframeVisible);
+    result.assetChanged |=
+        ImGui::Checkbox("Edit Mode", &sceneAsset->terrainEditMode);
+    if (ImGui::DragFloat("Brush Radius", &sceneAsset->terrainBrushRadius, 0.05f,
+                         0.05f, 128.0f, "%.2f")) {
+      sceneAsset->terrainBrushRadius =
+          std::clamp(sceneAsset->terrainBrushRadius, 0.05f, 128.0f);
+      result.assetChanged = true;
+    }
 
     int subdivisions =
         static_cast<int>(std::max(sceneAsset->terrainConfig.xSegments,

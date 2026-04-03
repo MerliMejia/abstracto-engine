@@ -100,6 +100,8 @@ static inline json sceneAssetToJson(const SceneAssetInstance &sceneAsset) {
       {"rotationDegrees", vec3ToJson(sceneAsset.transform.rotationDegrees)},
       {"scale", vec3ToJson(sceneAsset.transform.scale)},
       {"terrainWireframeVisible", sceneAsset.terrainWireframeVisible},
+      {"terrainEditMode", sceneAsset.terrainEditMode},
+      {"terrainBrushRadius", sceneAsset.terrainBrushRadius},
   };
   if (sceneAsset.kind == SceneAssetKind::Terrain) {
     value["terrainConfig"] = terrainConfigToJson(sceneAsset.terrainConfig);
@@ -125,6 +127,10 @@ static inline SceneAssetInstance sceneAssetFromJson(const json &value) {
                    sceneAsset.transform.scale);
   sceneAsset.terrainWireframeVisible = value.value(
       "terrainWireframeVisible", sceneAsset.terrainWireframeVisible);
+  sceneAsset.terrainEditMode =
+      value.value("terrainEditMode", sceneAsset.terrainEditMode);
+  sceneAsset.terrainBrushRadius = std::max(
+      value.value("terrainBrushRadius", sceneAsset.terrainBrushRadius), 0.05f);
   if (sceneAsset.kind == SceneAssetKind::Terrain &&
       value.contains("terrainConfig") && value["terrainConfig"].is_object()) {
     sceneAsset.terrainConfig = terrainConfigFromJson(value["terrainConfig"]);

@@ -341,6 +341,7 @@ private:
         .pos = vertex.pos,
         .normal = vertex.normal,
         .texCoord = vertex.texCoord,
+        .color = vertex.color,
         .tangent = vertex.tangent,
         .jointIndices = vertex.jointIndices,
         .jointWeights = vertex.jointWeights,

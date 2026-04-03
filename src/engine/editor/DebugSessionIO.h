@@ -25,6 +25,20 @@ vec3FromJson(const json &value,
                    value[2].get<float>());
 }
 
+static inline json vec4ToJson(const glm::vec4 &value) {
+  return json::array({value.x, value.y, value.z, value.w});
+}
+
+static inline glm::vec4
+vec4FromJson(const json &value,
+             const glm::vec4 &fallback = glm::vec4(0.0f)) {
+  if (!value.is_array() || value.size() != 4) {
+    return fallback;
+  }
+  return glm::vec4(value[0].get<float>(), value[1].get<float>(),
+                   value[2].get<float>(), value[3].get<float>());
+}
+
 static inline json sceneObjectToJson(const SceneObject &object) {
   json value = {
       {"name", object.name},
@@ -55,6 +69,10 @@ static inline json terrainConfigToJson(const TerrainConfig &config) {
   for (const float offset : config.heightOffsets) {
     heightOffsets.push_back(offset);
   }
+  json vertexColors = json::array();
+  for (const glm::vec4 &color : config.vertexColors) {
+    vertexColors.push_back(vec4ToJson(color));
+  }
   return {
       {"sizeX", config.sizeX},
       {"sizeZ", config.sizeZ},
@@ -68,6 +86,7 @@ static inline json terrainConfigToJson(const TerrainConfig &config) {
       {"noiseLacunarity", config.noiseLacunarity},
       {"noiseSeed", config.noiseSeed},
       {"heightOffsets", std::move(heightOffsets)},
+      {"vertexColors", std::move(vertexColors)},
   };
 }
 
@@ -99,6 +118,14 @@ static inline TerrainConfig terrainConfigFromJson(const json &value) {
       config.heightOffsets.push_back(offsetValue.get<float>());
     }
   }
+  if (value.contains("vertexColors") && value["vertexColors"].is_array()) {
+    config.vertexColors.clear();
+    config.vertexColors.reserve(value["vertexColors"].size());
+    for (const auto &colorValue : value["vertexColors"]) {
+      config.vertexColors.push_back(
+          vec4FromJson(colorValue, glm::vec4(1.0f)));
+    }
+  }
   return config;
 }
 
@@ -116,6 +143,8 @@ static inline json sceneAssetToJson(const SceneAssetInstance &sceneAsset) {
       {"terrainBrushRadius", sceneAsset.terrainBrushRadius},
       {"terrainBrushLowerMode", sceneAsset.terrainBrushLowerMode},
       {"terrainBrushFlattenMode", sceneAsset.terrainBrushFlattenMode},
+      {"terrainBrushColorPaintMode", sceneAsset.terrainBrushColorPaintMode},
+      {"terrainBrushColor", vec4ToJson(sceneAsset.terrainBrushColor)},
   };
   if (sceneAsset.kind == SceneAssetKind::Terrain) {
     value["terrainConfig"] = terrainConfigToJson(sceneAsset.terrainConfig);
@@ -149,6 +178,11 @@ static inline SceneAssetInstance sceneAssetFromJson(const json &value) {
       "terrainBrushLowerMode", sceneAsset.terrainBrushLowerMode);
   sceneAsset.terrainBrushFlattenMode = value.value(
       "terrainBrushFlattenMode", sceneAsset.terrainBrushFlattenMode);
+  sceneAsset.terrainBrushColorPaintMode = value.value(
+      "terrainBrushColorPaintMode", sceneAsset.terrainBrushColorPaintMode);
+  sceneAsset.terrainBrushColor = vec4FromJson(
+      value.value("terrainBrushColor", json::array()),
+      sceneAsset.terrainBrushColor);
   if (sceneAsset.kind == SceneAssetKind::Terrain &&
       value.contains("terrainConfig") && value["terrainConfig"].is_object()) {
     sceneAsset.terrainConfig = terrainConfigFromJson(value["terrainConfig"]);

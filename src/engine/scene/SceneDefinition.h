@@ -34,6 +34,8 @@ struct SceneAssetInstance {
   float terrainBrushRadius = 1.5f;
   bool terrainBrushLowerMode = false;
   bool terrainBrushFlattenMode = false;
+  bool terrainBrushColorPaintMode = false;
+  glm::vec4 terrainBrushColor{0.38f, 0.62f, 0.24f, 1.0f};
 
   static SceneAssetInstance fromAsset(std::string assetPathValue) {
     return SceneAssetInstance{

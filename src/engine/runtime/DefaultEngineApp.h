@@ -698,10 +698,20 @@ private:
 
     SceneAssetInstance &terrainAsset = sceneAssets[hit->terrainIndex];
     const float sculptSpeedPerSecond = 2.4f;
+    const float colorBlendPerSecond = 5.0f;
     const float brushStep =
         sculptSpeedPerSecond * std::max(deltaSeconds, 1.0f / 240.0f);
     bool changed = false;
-    if (terrainAsset.terrainBrushFlattenMode) {
+    if (terrainAsset.terrainBrushColorPaintMode) {
+      activeTerrainFlattenStroke.reset();
+      const float colorBlend =
+          colorBlendPerSecond * std::max(deltaSeconds, 1.0f / 240.0f);
+      changed = TerrainGenerator::applyColorBrush(
+          terrainAsset.terrainConfig,
+          {hit->localPosition.x, hit->localPosition.z},
+          terrainAsset.terrainBrushRadius, terrainAsset.terrainBrushColor,
+          colorBlend);
+    } else if (terrainAsset.terrainBrushFlattenMode) {
       if (!activeTerrainFlattenStroke.has_value() ||
           activeTerrainFlattenStroke->terrainIndex != hit->terrainIndex) {
         activeTerrainFlattenStroke = TerrainFlattenStroke{
@@ -779,11 +789,13 @@ private:
     const float lineHeight =
         std::max(terrainAsset.terrainBrushRadius * 0.75f, 0.6f);
     const glm::vec4 brushColor =
-        terrainAsset.terrainBrushFlattenMode
+        terrainAsset.terrainBrushColorPaintMode
+            ? terrainAsset.terrainBrushColor
+            : (terrainAsset.terrainBrushFlattenMode
             ? glm::vec4(0.22f, 0.72f, 0.96f, 1.0f)
             : (terrainAsset.terrainBrushLowerMode
                    ? glm::vec4(0.92f, 0.28f, 0.22f, 1.0f)
-                   : glm::vec4(0.95f, 0.85f, 0.2f, 1.0f));
+                   : glm::vec4(0.95f, 0.85f, 0.2f, 1.0f)));
     debugOverlayPass->setToolMarkerMesh(terrainBrushIndicatorMesh);
     debugOverlayPass->setToolMarkers({DebugOverlayInstance{
         .model = basisTransform(

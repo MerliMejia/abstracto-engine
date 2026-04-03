@@ -45,6 +45,7 @@ private:
           .pos = vertex.position,
           .normal = vertex.normal,
           .texCoord = vertex.uv,
+          .color = vertex.color,
       });
     }
 

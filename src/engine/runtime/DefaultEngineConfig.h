@@ -23,7 +23,7 @@ struct DefaultEngineConfig {
   bool enableDebugSessionPersistence = true;
   bool restoreSessionOnStartup = true;
   std::string contentPath = "assets";
-  std::string rendererAssetPath = "resources";
+  std::string rendererAssetPath = "systems/abstracto/resources";
   std::filesystem::path debugSessionPath{};
   std::string defaultEnvironmentHdrPath;
   std::optional<bool> skyboxVisible;

@@ -438,6 +438,11 @@ private:
         ImGui::Checkbox("Lower Mode", &sceneAsset->terrainBrushLowerMode);
     result.assetChanged |=
         ImGui::Checkbox("Flatten Mode", &sceneAsset->terrainBrushFlattenMode);
+    result.assetChanged |= ImGui::Checkbox("Color Paint Mode",
+                                           &sceneAsset->terrainBrushColorPaintMode);
+    if (ImGui::ColorEdit4("Paint Color", &sceneAsset->terrainBrushColor.x)) {
+      result.assetChanged = true;
+    }
     if (ImGui::DragFloat("Brush Radius", &sceneAsset->terrainBrushRadius, 0.05f,
                          0.05f, 128.0f, "%.2f")) {
       sceneAsset->terrainBrushRadius =
@@ -451,6 +456,14 @@ private:
       result.assetChanged = true;
       result.geometryChanged = true;
     }
+    if (ImGui::Button("Reset Vertex Colors")) {
+      TerrainGenerator::ensureVertexColors(sceneAsset->terrainConfig);
+      std::fill(sceneAsset->terrainConfig.vertexColors.begin(),
+                sceneAsset->terrainConfig.vertexColors.end(),
+                glm::vec4(1.0f));
+      result.assetChanged = true;
+      result.geometryChanged = true;
+    }
 
     int subdivisions =
         static_cast<int>(std::max(sceneAsset->terrainConfig.xSegments,
@@ -458,7 +471,7 @@ private:
     bool changed = ImGui::SliderInt("Subdivisions", &subdivisions, 1, 256);
     subdivisions = std::clamp(subdivisions, 1, 256);
     if (changed) {
-      TerrainGenerator::resampleHeightOffsets(
+      TerrainGenerator::resampleSurfaceLayers(
           sceneAsset->terrainConfig, static_cast<uint32_t>(subdivisions),
           static_cast<uint32_t>(subdivisions));
       result.assetChanged = true;

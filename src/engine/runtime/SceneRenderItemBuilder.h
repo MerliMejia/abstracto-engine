@@ -3,7 +3,7 @@
 #include "engine/assets/RenderableModel.h"
 #include "engine/editor/DebugUIState.h"
 #include "engine/scene/AppSceneController.h"
-#include "renderer/passes/ShadowPass.h"
+#include "passes/ShadowPass.h"
 #include <array>
 #include <vector>
 

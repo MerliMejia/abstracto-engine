@@ -1,8 +1,8 @@
 #pragma once
 
-#include "renderer/passes/PbrPass.h"
-#include "renderer/passes/ShadowPass.h"
-#include "renderer/resources/FrameGeometryUniforms.h"
+#include "passes/PbrPass.h"
+#include "passes/ShadowPass.h"
+#include "resources/FrameGeometryUniforms.h"
 #include "engine/editor/DebugUIState.h"
 #include "engine/scene/AppSceneController.h"
 #include <algorithm>

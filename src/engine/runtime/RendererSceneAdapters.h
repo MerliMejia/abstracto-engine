@@ -1,8 +1,8 @@
 #pragma once
 
 #include "scene/SceneLightSet.h"
-#include "renderer/passes/DebugOverlayPass.h"
-#include "renderer/passes/PbrPass.h"
+#include "passes/DebugOverlayPass.h"
+#include "passes/PbrPass.h"
 #include <algorithm>
 #include <vector>
 

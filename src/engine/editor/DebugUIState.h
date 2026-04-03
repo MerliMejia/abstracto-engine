@@ -1,8 +1,8 @@
 #pragma once
 
-#include "renderer/passes/PbrPass.h"
-#include "renderer/passes/TonemapPass.h"
-#include "renderer/lighting/ImageBasedLightingTypes.h"
+#include "passes/PbrPass.h"
+#include "passes/TonemapPass.h"
+#include "lighting/ImageBasedLightingTypes.h"
 #include "engine/assets/RenderableModel.h"
 #include "scene/SceneLightSet.h"
 #include "scene/SceneTypes.h"

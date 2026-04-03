@@ -443,6 +443,14 @@ private:
     if (ImGui::ColorEdit4("Paint Color", &sceneAsset->terrainBrushColor.x)) {
       result.assetChanged = true;
     }
+    if (ImGui::Button("Bucket Paint")) {
+      TerrainGenerator::ensureVertexColors(sceneAsset->terrainConfig);
+      std::fill(sceneAsset->terrainConfig.vertexColors.begin(),
+                sceneAsset->terrainConfig.vertexColors.end(),
+                sceneAsset->terrainBrushColor);
+      result.assetChanged = true;
+      result.geometryChanged = true;
+    }
     if (ImGui::DragFloat("Brush Radius", &sceneAsset->terrainBrushRadius, 0.05f,
                          0.05f, 128.0f, "%.2f")) {
       sceneAsset->terrainBrushRadius =

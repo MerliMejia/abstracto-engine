@@ -444,6 +444,13 @@ private:
           std::clamp(sceneAsset->terrainBrushRadius, 0.05f, 128.0f);
       result.assetChanged = true;
     }
+    if (ImGui::Button("Reset Height Offsets")) {
+      TerrainGenerator::ensureHeightOffsets(sceneAsset->terrainConfig);
+      std::fill(sceneAsset->terrainConfig.heightOffsets.begin(),
+                sceneAsset->terrainConfig.heightOffsets.end(), 0.0f);
+      result.assetChanged = true;
+      result.geometryChanged = true;
+    }
 
     int subdivisions =
         static_cast<int>(std::max(sceneAsset->terrainConfig.xSegments,
@@ -451,8 +458,9 @@ private:
     bool changed = ImGui::SliderInt("Subdivisions", &subdivisions, 1, 256);
     subdivisions = std::clamp(subdivisions, 1, 256);
     if (changed) {
-      sceneAsset->terrainConfig.xSegments = static_cast<uint32_t>(subdivisions);
-      sceneAsset->terrainConfig.zSegments = static_cast<uint32_t>(subdivisions);
+      TerrainGenerator::resampleHeightOffsets(
+          sceneAsset->terrainConfig, static_cast<uint32_t>(subdivisions),
+          static_cast<uint32_t>(subdivisions));
       result.assetChanged = true;
       result.geometryChanged = true;
     }

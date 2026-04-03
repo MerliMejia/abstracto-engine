@@ -17,6 +17,7 @@
 #include "core/PassRenderer.h"
 #include "core/RenderPass.h"
 #include "debug/DebugLightMeshes.h"
+#include "engine/debug/TerrainDebugMeshes.h"
 #include "passes/ShadowPass.h"
 #include "resources/FrameGeometryUniforms.h"
 #include "resources/Sampler.h"
@@ -54,7 +55,8 @@ public:
 
   void run() {
     debugUiSettings = buildBaseDebugUiSettings();
-    debugUiVisible = !isDebuggerAttached();
+    debugUiVisible = engineConfig.debugUiVisibleOnStartup.value_or(
+        !isDebuggerAttached());
     if (engineConfig.enableDebugSessionPersistence &&
         engineConfig.restoreSessionOnStartup) {
       loadDebugSessionFromDisk();
@@ -83,6 +85,7 @@ private:
   TypedMesh<Vertex> directionalLightMarkerMesh;
   TypedMesh<Vertex> boneSegmentMesh;
   TypedMesh<Vertex> boneJointMarkerMesh;
+  TypedMesh<Vertex> terrainWireframeMesh;
   FrameGeometryUniforms frameGeometryUniforms;
   Sampler sampler;
   ImageBasedLighting imageBasedLighting;
@@ -102,6 +105,8 @@ private:
   float smoothedFrameTimeMs = 0.0f;
   bool debugUiVisible = true;
   bool debugUiToggleHeld = false;
+  int activeTerrainWireframeIndex = -1;
+  std::optional<TerrainConfig> activeTerrainWireframeConfig;
 
   DeviceContext &deviceContext() { return backend.device(); }
   SwapchainContext &swapchainContext() { return backend.swapchain(); }
@@ -171,7 +176,7 @@ private:
       return sceneDefinition.assets;
     }
     if (!sceneDefinition.modelPath.empty()) {
-      return {SceneAssetInstance{.assetPath = sceneDefinition.modelPath}};
+      return {SceneAssetInstance::fromAsset(sceneDefinition.modelPath)};
     }
     return {};
   }
@@ -237,11 +242,7 @@ private:
       for (size_t index = 0; index < initialSceneAssets.size(); ++index) {
         const auto &sceneAsset = initialSceneAssets[index];
         settings.sceneObjects.push_back(SceneObject{
-            .name = sceneAsset.name.empty()
-                        ? std::filesystem::path(sceneAsset.assetPath)
-                              .stem()
-                              .string()
-                        : sceneAsset.name,
+            .name = AppSceneController::sceneAssetName(sceneAsset, index),
             .transform = sceneAsset.transform,
             .visible = sceneAsset.visible,
         });
@@ -286,6 +287,91 @@ private:
                                                    sceneAssets);
     AppSceneController::applyObjectOverrides(debugUiSettings,
                                              sceneDefinition.objectOverrides);
+  }
+
+  void commitSceneAssetsFromSettings() {
+    const size_t sceneObjectCount =
+        std::min(sceneAssets.size(), debugUiSettings.sceneObjects.size());
+    for (size_t index = 0; index < sceneObjectCount; ++index) {
+      sceneAssets[index].transform = debugUiSettings.sceneObjects[index].transform;
+      sceneAssets[index].visible = debugUiSettings.sceneObjects[index].visible;
+    }
+    sceneDefinition.assets = sceneAssets;
+  }
+
+  std::vector<SceneAssetInstance> persistedSceneAssets() const {
+    std::vector<SceneAssetInstance> persisted =
+        !sceneAssets.empty() ? sceneAssets : sceneDefinition.assets;
+    const size_t sceneObjectCount =
+        std::min(persisted.size(), debugUiSettings.sceneObjects.size());
+    for (size_t index = 0; index < sceneObjectCount; ++index) {
+      persisted[index].transform = debugUiSettings.sceneObjects[index].transform;
+      persisted[index].visible = debugUiSettings.sceneObjects[index].visible;
+    }
+    return persisted;
+  }
+
+  static bool sameTerrainConfig(const TerrainConfig &lhs,
+                                const TerrainConfig &rhs) {
+    return lhs.sizeX == rhs.sizeX && lhs.sizeZ == rhs.sizeZ &&
+           lhs.xSegments == rhs.xSegments && lhs.zSegments == rhs.zSegments &&
+           lhs.uvScale == rhs.uvScale && lhs.heightScale == rhs.heightScale &&
+           lhs.noiseFrequency == rhs.noiseFrequency &&
+           lhs.noiseOctaves == rhs.noiseOctaves &&
+           lhs.noisePersistence == rhs.noisePersistence &&
+           lhs.noiseLacunarity == rhs.noiseLacunarity &&
+           lhs.noiseSeed == rhs.noiseSeed;
+  }
+
+  void updateTerrainWireframeOverlay() {
+    if (debugOverlayPass == nullptr) {
+      return;
+    }
+
+    const size_t terrainCount =
+        std::min(sceneAssets.size(), debugUiSettings.sceneObjects.size());
+    int wireframeTerrainIndex = -1;
+    for (size_t index = 0; index < terrainCount; ++index) {
+      if (sceneAssets[index].kind != SceneAssetKind::Terrain ||
+          !sceneAssets[index].terrainWireframeVisible ||
+          !debugUiSettings.sceneObjects[index].visible) {
+        continue;
+      }
+      wireframeTerrainIndex = static_cast<int>(index);
+      break;
+    }
+
+    if (wireframeTerrainIndex < 0) {
+      activeTerrainWireframeIndex = -1;
+      activeTerrainWireframeConfig.reset();
+      debugOverlayPass->setCustomVisible(false);
+      debugOverlayPass->setCustomSegments({});
+      debugOverlayPass->setCustomMarkers({});
+      return;
+    }
+
+    const TerrainConfig &terrainConfig =
+        sceneAssets[static_cast<size_t>(wireframeTerrainIndex)].terrainConfig;
+    if (activeTerrainWireframeIndex != wireframeTerrainIndex ||
+        !activeTerrainWireframeConfig.has_value() ||
+        !sameTerrainConfig(*activeTerrainWireframeConfig, terrainConfig)) {
+      terrainWireframeMesh = buildTerrainWireframeMesh(terrainConfig);
+      terrainWireframeMesh.createVertexBuffer(commandContext(), deviceContext());
+      terrainWireframeMesh.createIndexBuffer(commandContext(), deviceContext());
+      activeTerrainWireframeIndex = wireframeTerrainIndex;
+      activeTerrainWireframeConfig = terrainConfig;
+    }
+
+    debugOverlayPass->setCustomMarkerMesh(terrainWireframeMesh);
+    debugOverlayPass->setCustomSegments({});
+    debugOverlayPass->setCustomMarkers({DebugOverlayInstance{
+        .model = AppSceneController::sceneTransformMatrix(
+            debugUiSettings
+                .sceneObjects[static_cast<size_t>(wireframeTerrainIndex)]
+                .transform),
+        .color = {0.08f, 0.08f, 0.08f, 1.0f},
+    }});
+    debugOverlayPass->setCustomVisible(true);
   }
 
   void rebuildSceneRenderItems() {
@@ -457,18 +543,29 @@ private:
     sceneAssetModels.resize(sceneAssets.size());
 
     for (size_t index = 0; index < sceneAssets.size(); ++index) {
-      if (sceneAssets[index].assetPath.empty()) {
+      const auto &sceneAsset = sceneAssets[index];
+      if (sceneAsset.kind == SceneAssetKind::Terrain) {
+        sceneAssetModels[index].loadTerrain(
+            sceneAsset.terrainConfig,
+            AppSceneController::sceneAssetName(sceneAsset, index),
+            commandContext(), deviceContext(), sceneDescriptorSetLayout(),
+            sceneSecondaryDescriptorSetLayout(), frameGeometryUniforms,
+            sampler, DEFAULT_ENGINE_MAX_FRAMES_IN_FLIGHT);
+        continue;
+      }
+
+      if (sceneAsset.assetPath.empty()) {
         continue;
       }
       sceneAssetModels[index].loadFromFile(
-          sceneAssets[index].assetPath, commandContext(), deviceContext(),
+          sceneAsset.assetPath, commandContext(), deviceContext(),
           sceneDescriptorSetLayout(), sceneSecondaryDescriptorSetLayout(),
           frameGeometryUniforms, sampler,
           DEFAULT_ENGINE_MAX_FRAMES_IN_FLIGHT);
       if (engineConfig.onSceneAssetLoaded != nullptr &&
           sceneAssetModels[index].modelAsset() != nullptr) {
         engineConfig.onSceneAssetLoaded(
-            sceneAssets[index], *sceneAssetModels[index].modelAsset());
+            sceneAsset, *sceneAssetModels[index].modelAsset());
       }
     }
     syncSceneObjectsWithAssets();
@@ -481,7 +578,12 @@ private:
     }
 
     try {
-      DebugSessionIO::loadDebugSession(debugSessionPath(), debugUiSettings);
+      std::vector<SceneAssetInstance> loadedSceneAssets;
+      DebugSessionIO::loadDebugSession(debugSessionPath(), debugUiSettings,
+                                       &loadedSceneAssets);
+      if (!loadedSceneAssets.empty()) {
+        sceneDefinition.assets = std::move(loadedSceneAssets);
+      }
       applyEngineConfigOverrides(debugUiSettings);
       ensureDefaultEnvironmentPath();
     } catch (const std::exception &e) {
@@ -495,7 +597,8 @@ private:
     }
 
     if (!DebugSessionIO::saveDebugSession(debugSessionPath(),
-                                          debugUiSettings)) {
+                                          debugUiSettings,
+                                          persistedSceneAssets())) {
       std::cerr << "Failed to save debug session to "
                 << debugSessionPath().string() << std::endl;
     }
@@ -625,7 +728,7 @@ private:
       if (debugUiVisible) {
         RenderableModel &editorModel = currentEditorModel();
         DefaultDebugUI defaultDebugUi = DefaultDebugUI::create(
-            editorModel, sceneAssetModels, debugUiSettings,
+            editorModel, sceneAssetModels, sceneAssets, debugUiSettings,
             DefaultDebugUICallbacks{
                 .syncProceduralSkySunWithLight =
                     [this]() { syncProceduralSkySunWithLight(); },
@@ -644,6 +747,12 @@ private:
         }
       }
       imguiPass->endFrame();
+      if (uiResult.sceneAssetChanged || uiResult.sceneGeometryChanged) {
+        commitSceneAssetsFromSettings();
+      }
+      if (uiResult.sceneGeometryChanged) {
+        reloadSceneAssets();
+      }
       if (uiResult.saveSessionRequested) {
         saveDebugSessionToDisk();
       }
@@ -735,6 +844,7 @@ private:
           AppSceneController::sceneObjectsAnchor(debugUiSettings),
           debugUiSettings.lightMarkerScale));
     }
+    updateTerrainWireframeOverlay();
     updateBoneOverlay();
     if (tonemapPass != nullptr) {
       const glm::vec3 lightRadiance = estimatedSceneLightRadiance();

@@ -1,18 +1,25 @@
 #pragma once
 
 #include "DebugUIState.h"
+#include "engine/scene/SceneDefinition.h"
 #include <algorithm>
 #include <filesystem>
-#include <unordered_set>
 #include <string>
+#include <unordered_set>
 #include <utility>
+
+struct SceneEditorUIResult {
+  bool materialChanged = false;
+  bool sceneAssetChanged = false;
+  bool sceneGeometryChanged = false;
+};
 
 class SceneEditorUI {
 public:
   explicit SceneEditorUI(DefaultDebugUIBindings bindings)
       : bindings(std::move(bindings)) {}
 
-  bool build() {
+  SceneEditorUIResult build() {
     buildHierarchyPanel();
     return buildInspectorPanel();
   }
@@ -234,24 +241,24 @@ private:
     ImGui::End();
   }
 
-  bool buildInspectorPanel() {
+  SceneEditorUIResult buildInspectorPanel() {
     auto &settings = bindings.settings;
     clampSceneObjectSelection(settings);
     clampBoneSelection(settings);
 
     ImGui::Begin("Inspector");
-    bool materialChanged = false;
+    SceneEditorUIResult result;
     if (settings.selectedLightIndex >= 0) {
       buildLightInspector();
     } else if (settings.selectedBoneIndex >= 0) {
       buildBoneInspector();
     } else if (!settings.sceneObjects.empty()) {
-      materialChanged = buildObjectInspector();
+      result = buildObjectInspector();
     } else {
       ImGui::TextUnformatted("Nothing selected.");
     }
     ImGui::End();
-    return materialChanged;
+    return result;
   }
 
   void buildObjectHierarchyNode(int index) {
@@ -294,15 +301,20 @@ private:
     }
   }
 
-  bool buildObjectInspector() {
+  SceneEditorUIResult buildObjectInspector() {
+    SceneEditorUIResult result;
     auto &settings = bindings.settings;
     if (settings.sceneObjects.empty()) {
-      return false;
+      return result;
     }
-    SceneObject &object =
-        settings
-            .sceneObjects[static_cast<size_t>(settings.selectedObjectIndex)];
+    const size_t selectedIndex =
+        static_cast<size_t>(settings.selectedObjectIndex);
+    SceneObject &object = settings.sceneObjects[selectedIndex];
     const ModelAsset *asset = bindings.sceneModel.modelAsset();
+    SceneAssetInstance *sceneAsset =
+        selectedIndex < bindings.sceneAssets.size()
+            ? &bindings.sceneAssets[selectedIndex]
+            : nullptr;
 
     ImGui::Text("Object: %s",
                 object.name.empty() ? "<unnamed>" : object.name.c_str());
@@ -331,13 +343,17 @@ private:
                         -180.0f, 180.0f);
     ImGui::DragFloat3("Scale", &object.transform.scale.x, 0.1f, 0.01f, 200.0f);
 
+    const TerrainInspectorResult terrainResult = buildTerrainInspector(sceneAsset);
+    result.sceneAssetChanged |= terrainResult.assetChanged;
+    result.sceneGeometryChanged |= terrainResult.geometryChanged;
+
     if (asset == nullptr) {
-      return false;
+      return result;
     }
 
     auto &materials = bindings.sceneModel.mutableMaterials();
     if (materials.empty()) {
-      return false;
+      return result;
     }
 
     settings.selectedMaterialIndex =
@@ -397,7 +413,47 @@ private:
                               material.occlusionTexture.hasEmbeddedRgba()
                           ? "yes"
                           : "no");
-    return materialChanged;
+    result.materialChanged = materialChanged;
+    return result;
+  }
+
+  struct TerrainInspectorResult {
+    bool assetChanged = false;
+    bool geometryChanged = false;
+  };
+
+  TerrainInspectorResult buildTerrainInspector(SceneAssetInstance *sceneAsset) {
+    TerrainInspectorResult result;
+    if (sceneAsset == nullptr || sceneAsset->kind != SceneAssetKind::Terrain) {
+      return result;
+    }
+
+    ImGui::SeparatorText("Terrain");
+
+    result.assetChanged |=
+        ImGui::Checkbox("Wireframe", &sceneAsset->terrainWireframeVisible);
+
+    int subdivisions =
+        static_cast<int>(std::max(sceneAsset->terrainConfig.xSegments,
+                                  sceneAsset->terrainConfig.zSegments));
+    bool changed = ImGui::SliderInt("Subdivisions", &subdivisions, 1, 256);
+    subdivisions = std::clamp(subdivisions, 1, 256);
+    if (changed) {
+      sceneAsset->terrainConfig.xSegments = static_cast<uint32_t>(subdivisions);
+      sceneAsset->terrainConfig.zSegments = static_cast<uint32_t>(subdivisions);
+      result.assetChanged = true;
+      result.geometryChanged = true;
+    }
+
+    float size[2] = {sceneAsset->terrainConfig.sizeX, sceneAsset->terrainConfig.sizeZ};
+    if (ImGui::DragFloat2("Size", size, 0.1f, 0.1f, 500.0f)) {
+      sceneAsset->terrainConfig.sizeX = std::max(size[0], 0.1f);
+      sceneAsset->terrainConfig.sizeZ = std::max(size[1], 0.1f);
+      result.assetChanged = true;
+      result.geometryChanged = true;
+    }
+
+    return result;
   }
 
   void buildSkeletonHierarchyNode() {

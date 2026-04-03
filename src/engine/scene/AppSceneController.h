@@ -116,11 +116,13 @@ public:
     }
   }
 
-private:
   static std::string sceneAssetName(const SceneAssetInstance &sceneAsset,
                                     size_t index) {
     if (!sceneAsset.name.empty()) {
       return sceneAsset.name;
+    }
+    if (sceneAsset.kind == SceneAssetKind::Terrain) {
+      return "Terrain";
     }
     if (!sceneAsset.assetPath.empty()) {
       const std::string stem =

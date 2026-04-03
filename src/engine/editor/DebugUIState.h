@@ -17,6 +17,8 @@
 #include <glm/glm.hpp>
 #include <imgui.h>
 
+struct SceneAssetInstance;
+
 enum class PresentedOutput : uint32_t {
   GBufferAlbedo = 0,
   GBufferNormal = 1,
@@ -187,6 +189,8 @@ private:
 
 struct DefaultDebugUIResult {
   bool materialChanged = false;
+  bool sceneAssetChanged = false;
+  bool sceneGeometryChanged = false;
   bool iblBakeRequested = false;
   bool saveSessionRequested = false;
   bool reloadSessionRequested = false;
@@ -210,6 +214,7 @@ struct DefaultDebugUIPerformanceStats {
 struct DefaultDebugUIBindings {
   RenderableModel &sceneModel;
   std::vector<RenderableModel> &sceneModels;
+  std::vector<SceneAssetInstance> &sceneAssets;
   DefaultDebugUISettings &settings;
   DefaultDebugUICallbacks callbacks;
   DefaultDebugUIPerformanceStats performanceStats;

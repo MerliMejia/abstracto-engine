@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DebugUIState.h"
+#include "engine/scene/SceneDefinition.h"
 #include <filesystem>
 #include <fstream>
 #include <json.hpp>
@@ -47,6 +48,88 @@ static inline SceneObject sceneObjectFromJson(const json &value) {
   object.transform.scale =
       vec3FromJson(value.value("scale", json::array()), object.transform.scale);
   return object;
+}
+
+static inline json terrainConfigToJson(const TerrainConfig &config) {
+  return {
+      {"sizeX", config.sizeX},
+      {"sizeZ", config.sizeZ},
+      {"xSegments", config.xSegments},
+      {"zSegments", config.zSegments},
+      {"uvScale", json::array({config.uvScale.x, config.uvScale.y})},
+      {"heightScale", config.heightScale},
+      {"noiseFrequency", config.noiseFrequency},
+      {"noiseOctaves", config.noiseOctaves},
+      {"noisePersistence", config.noisePersistence},
+      {"noiseLacunarity", config.noiseLacunarity},
+      {"noiseSeed", config.noiseSeed},
+  };
+}
+
+static inline TerrainConfig terrainConfigFromJson(const json &value) {
+  TerrainConfig config;
+  config.sizeX = value.value("sizeX", config.sizeX);
+  config.sizeZ = value.value("sizeZ", config.sizeZ);
+  config.xSegments = value.value("xSegments", config.xSegments);
+  config.zSegments = value.value("zSegments", config.zSegments);
+  if (value.contains("uvScale") && value["uvScale"].is_array() &&
+      value["uvScale"].size() == 2) {
+    config.uvScale =
+        glm::vec2(value["uvScale"][0].get<float>(),
+                  value["uvScale"][1].get<float>());
+  }
+  config.heightScale = value.value("heightScale", config.heightScale);
+  config.noiseFrequency =
+      value.value("noiseFrequency", config.noiseFrequency);
+  config.noiseOctaves = value.value("noiseOctaves", config.noiseOctaves);
+  config.noisePersistence =
+      value.value("noisePersistence", config.noisePersistence);
+  config.noiseLacunarity =
+      value.value("noiseLacunarity", config.noiseLacunarity);
+  config.noiseSeed = value.value("noiseSeed", config.noiseSeed);
+  return config;
+}
+
+static inline json sceneAssetToJson(const SceneAssetInstance &sceneAsset) {
+  json value = {
+      {"kind", static_cast<uint32_t>(sceneAsset.kind)},
+      {"assetPath", sceneAsset.assetPath},
+      {"name", sceneAsset.name},
+      {"visible", sceneAsset.visible},
+      {"position", vec3ToJson(sceneAsset.transform.position)},
+      {"rotationDegrees", vec3ToJson(sceneAsset.transform.rotationDegrees)},
+      {"scale", vec3ToJson(sceneAsset.transform.scale)},
+      {"terrainWireframeVisible", sceneAsset.terrainWireframeVisible},
+  };
+  if (sceneAsset.kind == SceneAssetKind::Terrain) {
+    value["terrainConfig"] = terrainConfigToJson(sceneAsset.terrainConfig);
+  }
+  return value;
+}
+
+static inline SceneAssetInstance sceneAssetFromJson(const json &value) {
+  SceneAssetInstance sceneAsset;
+  sceneAsset.kind = static_cast<SceneAssetKind>(
+      value.value("kind", static_cast<uint32_t>(sceneAsset.kind)));
+  sceneAsset.assetPath = value.value("assetPath", sceneAsset.assetPath);
+  sceneAsset.name = value.value("name", sceneAsset.name);
+  sceneAsset.visible = value.value("visible", sceneAsset.visible);
+  sceneAsset.transform.position =
+      vec3FromJson(value.value("position", json::array()),
+                   sceneAsset.transform.position);
+  sceneAsset.transform.rotationDegrees =
+      vec3FromJson(value.value("rotationDegrees", json::array()),
+                   sceneAsset.transform.rotationDegrees);
+  sceneAsset.transform.scale =
+      vec3FromJson(value.value("scale", json::array()),
+                   sceneAsset.transform.scale);
+  sceneAsset.terrainWireframeVisible = value.value(
+      "terrainWireframeVisible", sceneAsset.terrainWireframeVisible);
+  if (sceneAsset.kind == SceneAssetKind::Terrain &&
+      value.contains("terrainConfig") && value["terrainConfig"].is_object()) {
+    sceneAsset.terrainConfig = terrainConfigFromJson(value["terrainConfig"]);
+  }
+  return sceneAsset;
 }
 
 static inline json sceneLightToJson(const SceneLight &light) {
@@ -248,6 +331,17 @@ static inline json settingsToJson(const DefaultDebugUISettings &settings) {
   return value;
 }
 
+static inline json sessionToJson(const DefaultDebugUISettings &settings,
+                                 const std::vector<SceneAssetInstance> &sceneAssets) {
+  json value = settingsToJson(settings);
+  json sceneAssetsJson = json::array();
+  for (const auto &sceneAsset : sceneAssets) {
+    sceneAssetsJson.push_back(sceneAssetToJson(sceneAsset));
+  }
+  value["sceneAssets"] = std::move(sceneAssetsJson);
+  return value;
+}
+
 static inline DefaultDebugUISettings settingsFromJson(const json &value) {
   DefaultDebugUISettings settings;
   settings.presentedOutput = static_cast<PresentedOutput>(value.value(
@@ -374,7 +468,8 @@ static inline DefaultDebugUISettings settingsFromJson(const json &value) {
 }
 
 static inline bool saveDebugSession(const std::filesystem::path &path,
-                                    const DefaultDebugUISettings &settings) {
+                                    const DefaultDebugUISettings &settings,
+                                    const std::vector<SceneAssetInstance> &sceneAssets) {
   std::error_code error;
   if (path.has_parent_path()) {
     std::filesystem::create_directories(path.parent_path(), error);
@@ -385,12 +480,13 @@ static inline bool saveDebugSession(const std::filesystem::path &path,
     return false;
   }
 
-  output << settingsToJson(settings).dump(2);
+  output << sessionToJson(settings, sceneAssets).dump(2);
   return output.good();
 }
 
 static inline bool loadDebugSession(const std::filesystem::path &path,
-                                    DefaultDebugUISettings &settings) {
+                                    DefaultDebugUISettings &settings,
+                                    std::vector<SceneAssetInstance> *sceneAssets = nullptr) {
   if (!std::filesystem::exists(path)) {
     return false;
   }
@@ -403,6 +499,14 @@ static inline bool loadDebugSession(const std::filesystem::path &path,
   json parsed;
   input >> parsed;
   settings = settingsFromJson(parsed);
+  if (sceneAssets != nullptr) {
+    sceneAssets->clear();
+    if (parsed.contains("sceneAssets") && parsed["sceneAssets"].is_array()) {
+      for (const auto &sceneAssetValue : parsed["sceneAssets"]) {
+        sceneAssets->push_back(sceneAssetFromJson(sceneAssetValue));
+      }
+    }
+  }
   return true;
 }
 

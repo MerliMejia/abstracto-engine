@@ -3,9 +3,16 @@
 #include "scene/SceneLightSet.h"
 #include "scene/SceneTypes.h"
 #include "engine/editor/DebugUIState.h"
+#include "world/Terrain.h"
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
+
+enum class SceneAssetKind {
+  File = 0,
+  Terrain = 1,
+};
 
 struct SceneObjectOverride {
   std::string name;
@@ -16,10 +23,29 @@ struct SceneObjectOverride {
 };
 
 struct SceneAssetInstance {
+  SceneAssetKind kind = SceneAssetKind::File;
   std::string assetPath;
   std::string name;
   SceneTransform transform{};
   bool visible = true;
+  TerrainConfig terrainConfig{};
+  bool terrainWireframeVisible = false;
+
+  static SceneAssetInstance fromAsset(std::string assetPathValue) {
+    return SceneAssetInstance{
+        .kind = SceneAssetKind::File,
+        .assetPath = std::move(assetPathValue),
+    };
+  }
+
+  static SceneAssetInstance makeTerrain(TerrainConfig config,
+                                        std::string nameValue = "Terrain") {
+    return SceneAssetInstance{
+        .kind = SceneAssetKind::Terrain,
+        .name = std::move(nameValue),
+        .terrainConfig = std::move(config),
+    };
+  }
 };
 
 struct SceneDefinition {
@@ -31,9 +57,7 @@ struct SceneDefinition {
 
   static SceneDefinition fromModel(const std::string &modelPathValue) {
     SceneDefinition definition;
-    definition.assets.push_back(SceneAssetInstance{
-        .assetPath = modelPathValue,
-    });
+    definition.assets.push_back(SceneAssetInstance::fromAsset(modelPathValue));
     definition.modelPath = modelPathValue;
     return definition;
   }

@@ -4,6 +4,7 @@
 #include "DebugUIState.h"
 #include "RenderSettingsUI.h"
 #include "SceneEditorUI.h"
+#include "engine/scene/SceneDefinition.h"
 #include <utility>
 
 #include <imgui_internal.h>
@@ -15,6 +16,7 @@ public:
 
   static DefaultDebugUI
   create(RenderableModel &sceneModel, std::vector<RenderableModel> &sceneModels,
+         std::vector<SceneAssetInstance> &sceneAssets,
          DefaultDebugUISettings &settings,
          DefaultDebugUICallbacks callbacks,
          DefaultDebugUIPerformanceStats performanceStats = {},
@@ -22,6 +24,7 @@ public:
     return DefaultDebugUI(DefaultDebugUIBindings{
         .sceneModel = sceneModel,
         .sceneModels = sceneModels,
+        .sceneAssets = sceneAssets,
         .settings = settings,
         .callbacks = std::move(callbacks),
         .performanceStats = performanceStats,
@@ -36,7 +39,10 @@ public:
     SceneEditorUI sceneEditorUi(bindings);
     AnimationEditorUI animationEditorUi(bindings);
     RenderSettingsUI renderSettingsUi(bindings);
-    result.materialChanged = sceneEditorUi.build();
+    const auto sceneEditorResult = sceneEditorUi.build();
+    result.materialChanged = sceneEditorResult.materialChanged;
+    result.sceneAssetChanged = sceneEditorResult.sceneAssetChanged;
+    result.sceneGeometryChanged = sceneEditorResult.sceneGeometryChanged;
     animationEditorUi.build();
     result.iblBakeRequested = renderSettingsUi.buildWorldPanel();
     buildToolsPanel(result);

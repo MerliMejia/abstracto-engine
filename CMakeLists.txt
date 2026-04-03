@@ -17,6 +17,9 @@ endif()
 if(NOT TARGET abstracto_assets)
   add_subdirectory(systems/abstracto-assets build/abstracto-assets)
 endif()
+if(NOT TARGET abstracto_world)
+  add_subdirectory(systems/abstracto-world build/abstracto-world)
+endif()
 
 add_library(abstracto_engine INTERFACE)
 target_include_directories(abstracto_engine INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -27,8 +30,13 @@ target_link_libraries(
     abstracto_scene
     abstracto_animation
     abstracto_assets
+    abstracto_world
 )
 
-add_executable(AbstractoEngine apps/tree_scene/main.cpp)
+add_executable(AbstractoEngine apps/terrain_scene/main.cpp)
 target_include_directories(AbstractoEngine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(AbstractoEngine PRIVATE abstracto_engine)
+
+add_executable(AbstractoTreeScene apps/tree_scene/main.cpp)
+target_include_directories(AbstractoTreeScene PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_link_libraries(AbstractoTreeScene PRIVATE abstracto_engine)

@@ -27,6 +27,7 @@ struct DefaultEngineConfig {
   std::filesystem::path debugSessionPath{};
   std::string defaultEnvironmentHdrPath;
   std::optional<bool> skyboxVisible;
+  std::optional<bool> debugUiVisibleOnStartup;
   std::function<void(const SceneAssetInstance &, const ModelAsset &)>
       onSceneAssetLoaded;
   std::function<void(DefaultDebugUISettings &)> configureSettings;

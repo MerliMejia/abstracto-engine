@@ -4,6 +4,7 @@
 #include "assets/GltfModelAsset.h"
 #include "assets/ModelAsset.h"
 #include "assets/ObjModelAsset.h"
+#include "engine/assets/TerrainModelAsset.h"
 #include "core/RenderPass.h"
 #include "resources/FrameGeometryUniforms.h"
 #include "resources/Mesh.h"
@@ -74,6 +75,43 @@ public:
     }
 
     throw std::runtime_error("unsupported model format: " + extension);
+  }
+
+  void loadFromAsset(std::unique_ptr<ModelAsset> loadedAsset,
+                     CommandContext &commandContext,
+                     DeviceContext &deviceContext,
+                     const vk::raii::DescriptorSetLayout &descriptorSetLayout,
+                     const vk::raii::DescriptorSetLayout *secondaryDescriptorSetLayout,
+                     FrameGeometryUniforms &frameGeometryUniforms,
+                     Sampler &sampler, uint32_t framesInFlight,
+                     MaterialOverrideFn materialOverride = nullptr) {
+    if (loadedAsset == nullptr) {
+      throw std::runtime_error("cannot load a null model asset");
+    }
+    if (materialOverride) {
+      materialOverride(loadedAsset->mutableMaterials());
+    }
+
+    initializeLoadedAsset(std::move(loadedAsset), commandContext,
+                          deviceContext, descriptorSetLayout,
+                          secondaryDescriptorSetLayout, frameGeometryUniforms,
+                          sampler, framesInFlight);
+  }
+
+  void loadTerrain(const TerrainConfig &config, const std::string &sourceLabel,
+                   CommandContext &commandContext,
+                   DeviceContext &deviceContext,
+                   const vk::raii::DescriptorSetLayout &descriptorSetLayout,
+                   const vk::raii::DescriptorSetLayout *secondaryDescriptorSetLayout,
+                   FrameGeometryUniforms &frameGeometryUniforms,
+                   Sampler &sampler, uint32_t framesInFlight,
+                   MaterialOverrideFn materialOverride = nullptr) {
+    auto terrainAsset = std::make_unique<TerrainModelAsset>();
+    terrainAsset->setTerrain(config, sourceLabel);
+    loadFromAsset(std::move(terrainAsset), commandContext, deviceContext,
+                  descriptorSetLayout, secondaryDescriptorSetLayout,
+                  frameGeometryUniforms, sampler, framesInFlight,
+                  std::move(materialOverride));
   }
 
   std::vector<RenderItem>
@@ -478,6 +516,23 @@ private:
     loadedAsset->load(path);
     if (materialOverride) {
       materialOverride(loadedAsset->mutableMaterials());
+    }
+
+    initializeLoadedAsset(std::move(loadedAsset), commandContext,
+                          deviceContext, descriptorSetLayout,
+                          secondaryDescriptorSetLayout, frameGeometryUniforms,
+                          sampler, framesInFlight);
+  }
+
+  void initializeLoadedAsset(
+      std::unique_ptr<ModelAsset> loadedAsset, CommandContext &commandContext,
+      DeviceContext &deviceContext,
+      const vk::raii::DescriptorSetLayout &descriptorSetLayout,
+      const vk::raii::DescriptorSetLayout *secondaryDescriptorSetLayout,
+      FrameGeometryUniforms &frameGeometryUniforms, Sampler &sampler,
+      uint32_t framesInFlight) {
+    if (loadedAsset == nullptr) {
+      throw std::runtime_error("cannot initialize a null model asset");
     }
 
     geometryMesh.setImportedGeometry(

@@ -33,6 +33,7 @@ struct SceneAssetInstance {
   bool terrainEditMode = false;
   float terrainBrushRadius = 1.5f;
   bool terrainBrushLowerMode = false;
+  bool terrainBrushFlattenMode = false;
 
   static SceneAssetInstance fromAsset(std::string assetPathValue) {
     return SceneAssetInstance{

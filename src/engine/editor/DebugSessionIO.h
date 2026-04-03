@@ -115,6 +115,7 @@ static inline json sceneAssetToJson(const SceneAssetInstance &sceneAsset) {
       {"terrainEditMode", sceneAsset.terrainEditMode},
       {"terrainBrushRadius", sceneAsset.terrainBrushRadius},
       {"terrainBrushLowerMode", sceneAsset.terrainBrushLowerMode},
+      {"terrainBrushFlattenMode", sceneAsset.terrainBrushFlattenMode},
   };
   if (sceneAsset.kind == SceneAssetKind::Terrain) {
     value["terrainConfig"] = terrainConfigToJson(sceneAsset.terrainConfig);
@@ -146,6 +147,8 @@ static inline SceneAssetInstance sceneAssetFromJson(const json &value) {
       value.value("terrainBrushRadius", sceneAsset.terrainBrushRadius), 0.05f);
   sceneAsset.terrainBrushLowerMode = value.value(
       "terrainBrushLowerMode", sceneAsset.terrainBrushLowerMode);
+  sceneAsset.terrainBrushFlattenMode = value.value(
+      "terrainBrushFlattenMode", sceneAsset.terrainBrushFlattenMode);
   if (sceneAsset.kind == SceneAssetKind::Terrain &&
       value.contains("terrainConfig") && value["terrainConfig"].is_object()) {
     sceneAsset.terrainConfig = terrainConfigFromJson(value["terrainConfig"]);

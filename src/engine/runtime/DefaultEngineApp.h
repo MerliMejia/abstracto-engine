@@ -109,6 +109,11 @@ private:
   bool debugUiToggleHeld = false;
   int activeTerrainWireframeIndex = -1;
   std::optional<TerrainConfig> activeTerrainWireframeConfig;
+  struct TerrainFlattenStroke {
+    size_t terrainIndex = 0;
+    float targetHeight = 0.0f;
+  };
+  std::optional<TerrainFlattenStroke> activeTerrainFlattenStroke;
 
   struct TerrainEditHit {
     size_t terrainIndex = 0;
@@ -678,21 +683,48 @@ private:
     const bool leftMouseDown =
         glfwGetMouseButton(window.handle(), GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
     if (io.WantCaptureMouse) {
+      activeTerrainFlattenStroke.reset();
       return;
     }
 
-    if (!leftMouseDown || !hit.has_value()) {
+    if (!leftMouseDown) {
+      activeTerrainFlattenStroke.reset();
+      return;
+    }
+
+    if (!hit.has_value()) {
       return;
     }
 
     SceneAssetInstance &terrainAsset = sceneAssets[hit->terrainIndex];
     const float sculptSpeedPerSecond = 2.4f;
-    const float heightStep = (terrainAsset.terrainBrushLowerMode ? -1.0f : 1.0f) *
-                             sculptSpeedPerSecond *
-                             std::max(deltaSeconds, 1.0f / 240.0f);
-    if (!TerrainGenerator::applyBrush(
-            terrainAsset.terrainConfig, {hit->localPosition.x, hit->localPosition.z},
-            terrainAsset.terrainBrushRadius, heightStep)) {
+    const float brushStep =
+        sculptSpeedPerSecond * std::max(deltaSeconds, 1.0f / 240.0f);
+    bool changed = false;
+    if (terrainAsset.terrainBrushFlattenMode) {
+      if (!activeTerrainFlattenStroke.has_value() ||
+          activeTerrainFlattenStroke->terrainIndex != hit->terrainIndex) {
+        activeTerrainFlattenStroke = TerrainFlattenStroke{
+            .terrainIndex = hit->terrainIndex,
+            .targetHeight = hit->localPosition.y,
+        };
+      }
+      changed = TerrainGenerator::applyFlattenBrush(
+          terrainAsset.terrainConfig,
+          {hit->localPosition.x, hit->localPosition.z},
+          terrainAsset.terrainBrushRadius,
+          activeTerrainFlattenStroke->targetHeight, brushStep);
+    } else {
+      activeTerrainFlattenStroke.reset();
+      const float heightStep =
+          (terrainAsset.terrainBrushLowerMode ? -1.0f : 1.0f) * brushStep;
+      changed = TerrainGenerator::applyBrush(
+          terrainAsset.terrainConfig,
+          {hit->localPosition.x, hit->localPosition.z},
+          terrainAsset.terrainBrushRadius, heightStep);
+    }
+
+    if (!changed) {
       return;
     }
 
@@ -746,9 +778,12 @@ private:
 
     const float lineHeight =
         std::max(terrainAsset.terrainBrushRadius * 0.75f, 0.6f);
-    const glm::vec4 brushColor = terrainAsset.terrainBrushLowerMode
-                                     ? glm::vec4(0.92f, 0.28f, 0.22f, 1.0f)
-                                     : glm::vec4(0.95f, 0.85f, 0.2f, 1.0f);
+    const glm::vec4 brushColor =
+        terrainAsset.terrainBrushFlattenMode
+            ? glm::vec4(0.22f, 0.72f, 0.96f, 1.0f)
+            : (terrainAsset.terrainBrushLowerMode
+                   ? glm::vec4(0.92f, 0.28f, 0.22f, 1.0f)
+                   : glm::vec4(0.95f, 0.85f, 0.2f, 1.0f));
     debugOverlayPass->setToolMarkerMesh(terrainBrushIndicatorMesh);
     debugOverlayPass->setToolMarkers({DebugOverlayInstance{
         .model = basisTransform(

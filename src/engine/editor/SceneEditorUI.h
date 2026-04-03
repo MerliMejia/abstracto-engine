@@ -436,6 +436,8 @@ private:
         ImGui::Checkbox("Edit Mode", &sceneAsset->terrainEditMode);
     result.assetChanged |=
         ImGui::Checkbox("Lower Mode", &sceneAsset->terrainBrushLowerMode);
+    result.assetChanged |=
+        ImGui::Checkbox("Flatten Mode", &sceneAsset->terrainBrushFlattenMode);
     if (ImGui::DragFloat("Brush Radius", &sceneAsset->terrainBrushRadius, 0.05f,
                          0.05f, 128.0f, "%.2f")) {
       sceneAsset->terrainBrushRadius =

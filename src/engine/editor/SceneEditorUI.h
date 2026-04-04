@@ -1,10 +1,12 @@
 #pragma once
 
 #include "DebugUIState.h"
+#include "engine/scene/AppSceneController.h"
 #include "engine/scene/SceneDefinition.h"
 #include <algorithm>
 #include <filesystem>
 #include <string>
+#include <system_error>
 #include <unordered_set>
 #include <utility>
 
@@ -20,12 +22,189 @@ public:
       : bindings(std::move(bindings)) {}
 
   SceneEditorUIResult build() {
-    buildHierarchyPanel();
-    return buildInspectorPanel();
+    SceneEditorUIResult result = buildHierarchyPanel();
+    if (result.sceneGeometryChanged) {
+      return result;
+    }
+
+    const SceneEditorUIResult inspectorResult = buildInspectorPanel();
+    result.materialChanged |= inspectorResult.materialChanged;
+    result.sceneAssetChanged |= inspectorResult.sceneAssetChanged;
+    result.sceneGeometryChanged |= inspectorResult.sceneGeometryChanged;
+    return result;
   }
 
 private:
   DefaultDebugUIBindings bindings;
+
+  static bool isSupportedAssetPath(const std::filesystem::path &path) {
+    const std::string extension = path.extension().string();
+    return extension == ".obj" || extension == ".gltf" || extension == ".glb";
+  }
+
+  static TerrainConfig defaultTerrainConfig() {
+    return TerrainConfig{
+        .sizeX = 18.0f,
+        .sizeZ = 18.0f,
+        .xSegments = 32,
+        .zSegments = 32,
+        .uvScale = {6.0f, 6.0f},
+        .heightScale = 0.0f,
+        .noiseFrequency = 0.2f,
+        .noiseOctaves = 4,
+        .noisePersistence = 0.5f,
+        .noiseLacunarity = 2.0f,
+        .noiseSeed = 7,
+    };
+  }
+
+  void addSceneAsset(SceneAssetInstance sceneAsset) {
+    auto &settings = bindings.settings;
+    bindings.sceneAssets.push_back(std::move(sceneAsset));
+
+    const size_t assetIndex = bindings.sceneAssets.size() - 1;
+    const SceneAssetInstance &addedSceneAsset = bindings.sceneAssets[assetIndex];
+    settings.sceneObjects.push_back(SceneObject{
+        .name = AppSceneController::sceneAssetName(addedSceneAsset, assetIndex),
+        .transform = addedSceneAsset.transform,
+        .visible = addedSceneAsset.visible,
+    });
+    settings.selectedObjectIndex = static_cast<int>(assetIndex);
+    settings.selectedLightIndex = -1;
+    settings.selectedBoneIndex = -1;
+    settings.selectedMaterialIndex = 0;
+  }
+
+  void removeSelectedSceneAsset() {
+    auto &settings = bindings.settings;
+    if (settings.selectedObjectIndex < 0 ||
+        static_cast<size_t>(settings.selectedObjectIndex) >=
+            bindings.sceneAssets.size() ||
+        static_cast<size_t>(settings.selectedObjectIndex) >=
+            settings.sceneObjects.size()) {
+      return;
+    }
+
+    const size_t selectedIndex = static_cast<size_t>(settings.selectedObjectIndex);
+    bindings.sceneAssets.erase(bindings.sceneAssets.begin() +
+                               static_cast<long>(selectedIndex));
+    settings.sceneObjects.erase(settings.sceneObjects.begin() +
+                                static_cast<long>(selectedIndex));
+
+    settings.selectedLightIndex = -1;
+    settings.selectedBoneIndex = -1;
+    settings.selectedAnimationObjectIndex = -1;
+    settings.selectedAnimationIndex = -1;
+    settings.selectedMaterialIndex = 0;
+
+    if (settings.sceneObjects.empty()) {
+      settings.selectedObjectIndex = 0;
+      return;
+    }
+
+    settings.selectedObjectIndex =
+        std::clamp(settings.selectedObjectIndex, 0,
+                   static_cast<int>(settings.sceneObjects.size()) - 1);
+  }
+
+  void addLight(SceneLightType type) {
+    auto &settings = bindings.settings;
+    switch (type) {
+    case SceneLightType::Directional:
+      settings.sceneLights.addDirectional();
+      break;
+    case SceneLightType::Point:
+      settings.sceneLights.addPoint();
+      break;
+    case SceneLightType::Spot:
+      settings.sceneLights.addSpot();
+      break;
+    }
+
+    settings.selectedLightIndex = static_cast<int>(settings.sceneLights.size()) - 1;
+    settings.selectedBoneIndex = -1;
+  }
+
+  void buildAssetAddMenu(SceneEditorUIResult &result) {
+    std::vector<std::filesystem::path> assetPaths;
+    std::error_code errorCode;
+    const std::filesystem::path assetRoot("assets/models");
+    if (std::filesystem::exists(assetRoot, errorCode) &&
+        std::filesystem::is_directory(assetRoot, errorCode)) {
+      for (std::filesystem::recursive_directory_iterator iterator(assetRoot,
+                                                                  errorCode),
+           end;
+           iterator != end && !errorCode; iterator.increment(errorCode)) {
+        if (!iterator->is_regular_file(errorCode) ||
+            !isSupportedAssetPath(iterator->path())) {
+          continue;
+        }
+        assetPaths.push_back(iterator->path().lexically_normal());
+      }
+    }
+
+    std::sort(assetPaths.begin(), assetPaths.end());
+    if (assetPaths.empty()) {
+      ImGui::MenuItem("No model assets found", nullptr, false, false);
+      return;
+    }
+
+    for (size_t index = 0; index < assetPaths.size(); ++index) {
+      const std::string assetPath = assetPaths[index].generic_string();
+      const std::string label =
+          assetPaths[index].filename().string() + "##add_asset_" +
+          std::to_string(index);
+      if (!ImGui::MenuItem(label.c_str())) {
+        continue;
+      }
+
+      addSceneAsset(SceneAssetInstance::fromAsset(assetPath));
+      result.sceneAssetChanged = true;
+      result.sceneGeometryChanged = true;
+    }
+  }
+
+  void buildHierarchyMenuBar(SceneEditorUIResult &result) {
+    if (!ImGui::BeginMenuBar()) {
+      return;
+    }
+
+    if (ImGui::BeginMenu("Add")) {
+      if (ImGui::BeginMenu("Asset")) {
+        buildAssetAddMenu(result);
+        ImGui::EndMenu();
+      }
+      if (ImGui::MenuItem("Terrain")) {
+        addSceneAsset(
+            SceneAssetInstance::makeTerrain(defaultTerrainConfig(), "Terrain"));
+        result.sceneAssetChanged = true;
+        result.sceneGeometryChanged = true;
+      }
+      ImGui::Separator();
+      if (ImGui::MenuItem("Directional Light")) {
+        addLight(SceneLightType::Directional);
+      }
+      if (ImGui::MenuItem("Point Light")) {
+        addLight(SceneLightType::Point);
+      }
+      if (ImGui::MenuItem("Spot Light")) {
+        addLight(SceneLightType::Spot);
+      }
+      ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("Scene")) {
+      if (ImGui::MenuItem("Reset Lights")) {
+        auto &settings = bindings.settings;
+        settings.sceneLights = SceneLightSet::showcaseLights();
+        settings.selectedLightIndex = settings.sceneLights.empty() ? -1 : 0;
+        settings.selectedBoneIndex = -1;
+      }
+      ImGui::EndMenu();
+    }
+
+    ImGui::EndMenuBar();
+  }
 
   const SkeletonAssetData *currentSkeleton() const {
     return bindings.sceneModel.skeletonAsset();
@@ -180,38 +359,15 @@ private:
         std::asin(glm::clamp(normalizedDirection.z, -1.0f, 1.0f));
   }
 
-  void buildHierarchyPanel() {
+  SceneEditorUIResult buildHierarchyPanel() {
+    SceneEditorUIResult result;
     auto &settings = bindings.settings;
     clampSceneObjectSelection(settings);
     clampBoneSelection(settings);
     const auto &lights = settings.sceneLights.lights();
 
-    ImGui::Begin("Hierarchy");
-    if (ImGui::Button("+ Directional")) {
-      settings.sceneLights.addDirectional();
-      settings.selectedLightIndex =
-          static_cast<int>(settings.sceneLights.size()) - 1;
-      settings.selectedBoneIndex = -1;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("+ Point")) {
-      settings.sceneLights.addPoint();
-      settings.selectedLightIndex =
-          static_cast<int>(settings.sceneLights.size()) - 1;
-      settings.selectedBoneIndex = -1;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("+ Spot")) {
-      settings.sceneLights.addSpot();
-      settings.selectedLightIndex =
-          static_cast<int>(settings.sceneLights.size()) - 1;
-      settings.selectedBoneIndex = -1;
-    }
-    if (ImGui::Button("Reset Lights")) {
-      settings.sceneLights = SceneLightSet::showcaseLights();
-      settings.selectedLightIndex = settings.sceneLights.empty() ? -1 : 0;
-      settings.selectedBoneIndex = -1;
-    }
+    ImGui::Begin("Hierarchy", nullptr, ImGuiWindowFlags_MenuBar);
+    buildHierarchyMenuBar(result);
 
     ImGui::SeparatorText("Objects");
     if (settings.sceneObjects.empty()) {
@@ -239,6 +395,7 @@ private:
       }
     }
     ImGui::End();
+    return result;
   }
 
   SceneEditorUIResult buildInspectorPanel() {
@@ -318,6 +475,12 @@ private:
 
     ImGui::Text("Object: %s",
                 object.name.empty() ? "<unnamed>" : object.name.c_str());
+    if (ImGui::Button("Remove From Scene")) {
+      removeSelectedSceneAsset();
+      result.sceneAssetChanged = true;
+      result.sceneGeometryChanged = true;
+      return result;
+    }
     if (asset != nullptr) {
       const std::string assetPath = asset->path();
       ImGui::Text("Asset: %s",
@@ -818,7 +981,7 @@ private:
           std::max(light.outerConeAngleRadians, light.innerConeAngleRadians);
     }
 
-    if (ImGui::Button("Remove Selected Light")) {
+    if (ImGui::Button("Remove From Scene")) {
       settings.sceneLights.remove(
           static_cast<size_t>(settings.selectedLightIndex));
       settings.selectedLightIndex =
@@ -826,6 +989,7 @@ private:
               ? -1
               : std::clamp(settings.selectedLightIndex, 0,
                            static_cast<int>(settings.sceneLights.size()) - 1);
+      settings.selectedBoneIndex = -1;
     }
 
     const glm::vec3 primaryDirection =

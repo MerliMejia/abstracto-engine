@@ -534,7 +534,8 @@ private:
                         -180.0f, 180.0f);
     ImGui::DragFloat3("Scale", &object.transform.scale.x, 0.1f, 0.01f, 200.0f);
 
-    const TerrainInspectorResult terrainResult = buildTerrainInspector(sceneAsset);
+    const TerrainInspectorResult terrainResult =
+        buildTerrainInspector(selectedIndex, sceneAsset);
     result.sceneAssetChanged |= terrainResult.assetChanged;
     result.sceneGeometryChanged |= terrainResult.geometryChanged;
 
@@ -613,7 +614,8 @@ private:
     bool geometryChanged = false;
   };
 
-  TerrainInspectorResult buildTerrainInspector(SceneAssetInstance *sceneAsset) {
+  TerrainInspectorResult buildTerrainInspector(size_t sceneAssetIndex,
+                                               SceneAssetInstance *sceneAsset) {
     TerrainInspectorResult result;
     if (sceneAsset == nullptr || sceneAsset->kind != SceneAssetKind::Terrain) {
       return result;
@@ -703,6 +705,13 @@ private:
       sceneAsset->terrainPaintCanvasPath.clear();
       result.assetChanged = true;
     }
+    ImGui::BeginDisabled(sceneAsset->terrainBrushTexturePath.empty());
+    if (ImGui::Button("Bucket Paint Texture") &&
+        bindings.callbacks.bucketPaintTerrainTexture != nullptr) {
+      result.assetChanged |=
+          bindings.callbacks.bucketPaintTerrainTexture(sceneAssetIndex);
+    }
+    ImGui::EndDisabled();
     if (ImGui::Button("Bucket Paint")) {
       TerrainGenerator::ensureVertexColors(sceneAsset->terrainConfig);
       std::fill(sceneAsset->terrainConfig.vertexColors.begin(),

@@ -810,6 +810,73 @@ private:
     return changed;
   }
 
+  bool bucketPaintTerrainTexture(size_t terrainIndex) {
+    if (terrainIndex >= sceneAssets.size()) {
+      return false;
+    }
+
+    SceneAssetInstance &sceneAsset = sceneAssets[terrainIndex];
+    TerrainPaintState &paintState = ensureTerrainPaintState(terrainIndex);
+    if (sceneAsset.kind != SceneAssetKind::Terrain || paintState.canvasPixels.empty() ||
+        paintState.brushPixels.empty() || paintState.canvasWidth == 0 ||
+        paintState.canvasHeight == 0) {
+      return false;
+    }
+
+    endTerrainPaintStroke(paintState);
+
+    const auto toByte = [](float value) {
+      return static_cast<uint8_t>(glm::clamp(value, 0.0f, 1.0f) * 255.0f + 0.5f);
+    };
+
+    const float tiledUvScaleX =
+        std::max(sceneAsset.terrainConfig.uvScale.x, 1e-4f);
+    const float tiledUvScaleY =
+        std::max(sceneAsset.terrainConfig.uvScale.y, 1e-4f);
+    const float opacity = glm::clamp(sceneAsset.terrainBrushOpacity, 0.0f, 1.0f);
+
+    bool changed = false;
+    for (uint32_t y = 0; y < paintState.canvasHeight; ++y) {
+      const float canvasV =
+          (static_cast<float>(y) + 0.5f) / static_cast<float>(paintState.canvasHeight);
+      for (uint32_t x = 0; x < paintState.canvasWidth; ++x) {
+        const float canvasU =
+            (static_cast<float>(x) + 0.5f) / static_cast<float>(paintState.canvasWidth);
+        const glm::vec2 variedBrushUv = variedTerrainBrushUv(
+            canvasU * tiledUvScaleX, canvasV * tiledUvScaleY,
+            sceneAsset.terrainBrushTextureVariation);
+        const glm::vec4 brushSample = sampleTerrainBrushTexture(
+            paintState, variedBrushUv.x, variedBrushUv.y);
+        const size_t pixelIndex =
+            (static_cast<size_t>(y) * static_cast<size_t>(paintState.canvasWidth) +
+             static_cast<size_t>(x)) *
+            4u;
+        const uint8_t nextR = toByte(brushSample.r);
+        const uint8_t nextG = toByte(brushSample.g);
+        const uint8_t nextB = toByte(brushSample.b);
+        const uint8_t nextA = toByte(brushSample.a * opacity);
+        if (paintState.canvasPixels[pixelIndex + 0] == nextR &&
+            paintState.canvasPixels[pixelIndex + 1] == nextG &&
+            paintState.canvasPixels[pixelIndex + 2] == nextB &&
+            paintState.canvasPixels[pixelIndex + 3] == nextA) {
+          continue;
+        }
+
+        paintState.canvasPixels[pixelIndex + 0] = nextR;
+        paintState.canvasPixels[pixelIndex + 1] = nextG;
+        paintState.canvasPixels[pixelIndex + 2] = nextB;
+        paintState.canvasPixels[pixelIndex + 3] = nextA;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      paintState.materialDirty = true;
+      paintState.canvasDirty = true;
+    }
+    return changed;
+  }
+
   bool eraseTerrainPaintCanvas(size_t terrainIndex, const glm::vec2 &localPosition,
                                float eraseStrength) {
     if (terrainIndex >= sceneAssets.size()) {
@@ -1874,6 +1941,10 @@ private:
                     [this]() { syncProceduralSkySunWithLight(); },
                 .currentPrimaryDirectionalLightWorld =
                     [this]() { return currentPrimaryDirectionalLightWorld(); },
+                .bucketPaintTerrainTexture =
+                    [this](size_t terrainIndex) {
+                      return bucketPaintTerrainTexture(terrainIndex);
+                    },
             },
             AppPerformanceStats::build(
                 smoothedFps, smoothedFrameTimeMs, debugUiSettings,

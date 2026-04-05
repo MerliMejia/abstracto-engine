@@ -89,6 +89,7 @@ struct DefaultDebugUISettings {
 struct DefaultDebugUICallbacks {
   std::function<void()> syncProceduralSkySunWithLight;
   std::function<glm::vec3()> currentPrimaryDirectionalLightWorld;
+  std::function<bool(size_t)> bucketPaintTerrainTexture;
 };
 
 class DefaultDebugCameraController {

@@ -11,7 +11,7 @@ int main() {
     engineConfig.enableDebugSessionPersistence = true;
     engineConfig.restoreSessionOnStartup = true;
     engineConfig.debugSessionPath = "assets/debug/terrain_scene.json";
-    engineConfig.defaultEnvironmentHdrPath = "assets/textures/nature_sky.hdr";
+    engineConfig.defaultEnvironmentHdrPath = "assets/textures/autumn_field_puresky_4k.hdr";
     engineConfig.skyboxVisible = true;
     engineConfig.debugUiVisibleOnStartup = true;
 

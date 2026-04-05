@@ -129,6 +129,40 @@ static inline TerrainConfig terrainConfigFromJson(const json &value) {
   return config;
 }
 
+static inline json
+terrainMaterialOverrideToJson(const TerrainMaterialOverride &materialOverride) {
+  return {
+      {"name", materialOverride.name},
+      {"baseColorFactor", vec4ToJson(materialOverride.baseColorFactor)},
+      {"emissiveFactor", vec3ToJson(materialOverride.emissiveFactor)},
+      {"metallicFactor", materialOverride.metallicFactor},
+      {"roughnessFactor", materialOverride.roughnessFactor},
+      {"occlusionStrength", materialOverride.occlusionStrength},
+  };
+}
+
+static inline TerrainMaterialOverride
+terrainMaterialOverrideFromJson(const json &value) {
+  TerrainMaterialOverride materialOverride;
+  materialOverride.name = value.value("name", materialOverride.name);
+  materialOverride.baseColorFactor = vec4FromJson(
+      value.value("baseColorFactor", json::array()),
+      materialOverride.baseColorFactor);
+  materialOverride.emissiveFactor = vec3FromJson(
+      value.value("emissiveFactor", json::array()),
+      materialOverride.emissiveFactor);
+  materialOverride.metallicFactor = glm::clamp(
+      value.value("metallicFactor", materialOverride.metallicFactor), 0.0f,
+      1.0f);
+  materialOverride.roughnessFactor = glm::clamp(
+      value.value("roughnessFactor", materialOverride.roughnessFactor), 0.0f,
+      1.0f);
+  materialOverride.occlusionStrength = glm::clamp(
+      value.value("occlusionStrength", materialOverride.occlusionStrength), 0.0f,
+      1.0f);
+  return materialOverride;
+}
+
 static inline json sceneAssetToJson(const SceneAssetInstance &sceneAsset) {
   json value = {
       {"kind", static_cast<uint32_t>(sceneAsset.kind)},
@@ -154,6 +188,14 @@ static inline json sceneAssetToJson(const SceneAssetInstance &sceneAsset) {
   };
   if (sceneAsset.kind == SceneAssetKind::Terrain) {
     value["terrainConfig"] = terrainConfigToJson(sceneAsset.terrainConfig);
+    if (!sceneAsset.terrainMaterialOverrides.empty()) {
+      json materialOverrides = json::array();
+      for (const auto &materialOverride : sceneAsset.terrainMaterialOverrides) {
+        materialOverrides.push_back(
+            terrainMaterialOverrideToJson(materialOverride));
+      }
+      value["terrainMaterialOverrides"] = std::move(materialOverrides);
+    }
   }
   return value;
 }
@@ -209,6 +251,18 @@ static inline SceneAssetInstance sceneAssetFromJson(const json &value) {
   if (sceneAsset.kind == SceneAssetKind::Terrain &&
       value.contains("terrainConfig") && value["terrainConfig"].is_object()) {
     sceneAsset.terrainConfig = terrainConfigFromJson(value["terrainConfig"]);
+  }
+  if (sceneAsset.kind == SceneAssetKind::Terrain &&
+      value.contains("terrainMaterialOverrides") &&
+      value["terrainMaterialOverrides"].is_array()) {
+    sceneAsset.terrainMaterialOverrides.clear();
+    sceneAsset.terrainMaterialOverrides.reserve(
+        value["terrainMaterialOverrides"].size());
+    for (const auto &materialOverrideValue :
+         value["terrainMaterialOverrides"]) {
+      sceneAsset.terrainMaterialOverrides.push_back(
+          terrainMaterialOverrideFromJson(materialOverrideValue));
+    }
   }
   return sceneAsset;
 }

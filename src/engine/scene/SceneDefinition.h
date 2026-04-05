@@ -22,6 +22,15 @@ struct SceneObjectOverride {
   bool overrideVisibility = false;
 };
 
+struct TerrainMaterialOverride {
+  std::string name;
+  glm::vec4 baseColorFactor{1.0f, 1.0f, 1.0f, 1.0f};
+  glm::vec3 emissiveFactor{0.0f, 0.0f, 0.0f};
+  float metallicFactor = 0.0f;
+  float roughnessFactor = 1.0f;
+  float occlusionStrength = 1.0f;
+};
+
 struct SceneAssetInstance {
   SceneAssetKind kind = SceneAssetKind::File;
   std::string assetPath;
@@ -42,6 +51,7 @@ struct SceneAssetInstance {
   uint32_t terrainPaintCanvasResolution = 1024;
   std::string terrainPaintCanvasPath;
   std::string terrainBrushTexturePath = "assets/textures/viking_room.png";
+  std::vector<TerrainMaterialOverride> terrainMaterialOverrides;
 
   static SceneAssetInstance fromAsset(std::string assetPathValue) {
     return SceneAssetInstance{

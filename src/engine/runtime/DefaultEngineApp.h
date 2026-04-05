@@ -380,6 +380,40 @@ private:
     material.paintCanvasUvScale = sceneAsset.terrainConfig.uvScale;
   }
 
+  static TerrainMaterialOverride
+  terrainMaterialOverrideFromMaterial(const ImportedMaterialData &material) {
+    return TerrainMaterialOverride{
+        .name = material.name,
+        .baseColorFactor = material.baseColorFactor,
+        .emissiveFactor = material.emissiveFactor,
+        .metallicFactor = material.metallicFactor,
+        .roughnessFactor = material.roughnessFactor,
+        .occlusionStrength = material.occlusionStrength,
+    };
+  }
+
+  static void applyTerrainMaterialOverride(
+      ImportedMaterialData &material,
+      const TerrainMaterialOverride &materialOverride) {
+    material.name = materialOverride.name;
+    material.baseColorFactor = materialOverride.baseColorFactor;
+    material.emissiveFactor = materialOverride.emissiveFactor;
+    material.metallicFactor = materialOverride.metallicFactor;
+    material.roughnessFactor = materialOverride.roughnessFactor;
+    material.occlusionStrength = materialOverride.occlusionStrength;
+  }
+
+  static std::vector<TerrainMaterialOverride>
+  terrainMaterialOverridesFromMaterials(
+      const std::vector<ImportedMaterialData> &materials) {
+    std::vector<TerrainMaterialOverride> overrides;
+    overrides.reserve(materials.size());
+    for (const auto &material : materials) {
+      overrides.push_back(terrainMaterialOverrideFromMaterial(material));
+    }
+    return overrides;
+  }
+
   void applyEngineConfigOverrides(DefaultDebugUISettings &settings) const {
     if (engineConfig.skyboxVisible.has_value()) {
       settings.skyboxVisible = *engineConfig.skyboxVisible;
@@ -511,12 +545,14 @@ private:
       sceneAssets[index].transform = debugUiSettings.sceneObjects[index].transform;
       sceneAssets[index].visible = debugUiSettings.sceneObjects[index].visible;
     }
+    syncTerrainMaterialOverridesInto(sceneAssets);
     sceneDefinition.assets = sceneAssets;
   }
 
   std::vector<SceneAssetInstance> persistedSceneAssets() const {
     std::vector<SceneAssetInstance> persisted =
         !sceneAssets.empty() ? sceneAssets : sceneDefinition.assets;
+    syncTerrainMaterialOverridesInto(persisted);
     const size_t sceneObjectCount =
         std::min(persisted.size(), debugUiSettings.sceneObjects.size());
     for (size_t index = 0; index < sceneObjectCount; ++index) {
@@ -524,6 +560,19 @@ private:
       persisted[index].visible = debugUiSettings.sceneObjects[index].visible;
     }
     return persisted;
+  }
+
+  void syncTerrainMaterialOverridesInto(
+      std::vector<SceneAssetInstance> &assets) const {
+    const size_t assetCount = std::min(assets.size(), sceneAssetModels.size());
+    for (size_t index = 0; index < assetCount; ++index) {
+      if (assets[index].kind != SceneAssetKind::Terrain ||
+          sceneAssetModels[index].modelAsset() == nullptr) {
+        continue;
+      }
+      assets[index].terrainMaterialOverrides =
+          terrainMaterialOverridesFromMaterials(sceneAssetModels[index].materials());
+    }
   }
 
   TerrainPaintState &ensureTerrainPaintState(size_t terrainIndex) {
@@ -1257,6 +1306,15 @@ private:
                    ++materialIndex) {
                 materials[materialIndex] = existingMaterials[materialIndex];
               }
+            } else if (!sceneAsset.terrainMaterialOverrides.empty()) {
+              const size_t materialCount = std::min(
+                  sceneAsset.terrainMaterialOverrides.size(), materials.size());
+              for (size_t materialIndex = 0; materialIndex < materialCount;
+                   ++materialIndex) {
+                applyTerrainMaterialOverride(
+                    materials[materialIndex],
+                    sceneAsset.terrainMaterialOverrides[materialIndex]);
+              }
             }
             applyTerrainPaintMaterial(materials.front(), sceneAsset, paintState);
           });
@@ -1826,6 +1884,8 @@ private:
         uiResult = defaultDebugUi.build();
         if (uiResult.materialChanged && editorModel.modelAsset() != nullptr) {
           editorModel.syncMaterialParameters();
+          syncTerrainMaterialOverridesInto(sceneAssets);
+          sceneDefinition.assets = sceneAssets;
         }
       }
       imguiPass->endFrame();

@@ -21,6 +21,7 @@
 #include "passes/ShadowPass.h"
 #include "resources/FrameGeometryUniforms.h"
 #include "resources/Sampler.h"
+#include <stb_image.h>
 #include "vulkan/vulkan.hpp"
 #if defined(__APPLE__)
 #include <sys/sysctl.h>
@@ -33,10 +34,13 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cctype>
 #include <cmath>
+#include <fstream>
 #include <filesystem>
 #include <iostream>
 #include <limits>
+#include <unordered_map>
 #include <utility>
 
 class DefaultEngineApp {
@@ -109,11 +113,29 @@ private:
   bool debugUiToggleHeld = false;
   int activeTerrainWireframeIndex = -1;
   std::optional<TerrainConfig> activeTerrainWireframeConfig;
+  struct TerrainPaintState {
+    std::vector<uint8_t> canvasPixels;
+    uint32_t canvasWidth = 0;
+    uint32_t canvasHeight = 0;
+    std::vector<uint8_t> brushPixels;
+    int brushWidth = 0;
+    int brushHeight = 0;
+    std::string loadedBrushTexturePath;
+    glm::vec2 loadedUvScale{1.0f, 1.0f};
+    bool materialDirty = false;
+    bool canvasDirty = false;
+    bool strokeActive = false;
+    std::vector<uint8_t> strokeBasePixels;
+    std::vector<uint8_t> strokePixels;
+    std::chrono::steady_clock::time_point lastUploadTime =
+        std::chrono::steady_clock::now();
+  };
   struct TerrainFlattenStroke {
     size_t terrainIndex = 0;
     float targetHeight = 0.0f;
   };
   std::optional<TerrainFlattenStroke> activeTerrainFlattenStroke;
+  std::vector<TerrainPaintState> terrainPaintStates;
 
   struct TerrainEditHit {
     size_t terrainIndex = 0;
@@ -177,6 +199,185 @@ private:
 
   std::filesystem::path debugSessionPath() const {
     return resolvedDebugSessionPath(engineConfig);
+  }
+
+  static std::string sanitizePathFragment(std::string value) {
+    for (char &character : value) {
+      if (std::isalnum(static_cast<unsigned char>(character)) != 0) {
+        character = static_cast<char>(std::tolower(
+            static_cast<unsigned char>(character)));
+        continue;
+      }
+      character = '_';
+    }
+
+    value.erase(std::unique(value.begin(), value.end(),
+                            [](char lhs, char rhs) {
+                              return lhs == '_' && rhs == '_';
+                            }),
+                value.end());
+    while (!value.empty() && value.front() == '_') {
+      value.erase(value.begin());
+    }
+    while (!value.empty() && value.back() == '_') {
+      value.pop_back();
+    }
+    if (value.empty()) {
+      return "terrain";
+    }
+    return value;
+  }
+
+  std::filesystem::path defaultTerrainPaintCanvasPath(
+      size_t terrainIndex, const SceneAssetInstance &sceneAsset) const {
+    const std::string baseName =
+        sceneAsset.name.empty() ? "terrain" : sceneAsset.name;
+    return std::filesystem::path("assets") / "debug" /
+           (sanitizePathFragment(baseName) + "_paint_" +
+            std::to_string(terrainIndex) + ".rgba");
+  }
+
+  static bool loadTerrainPaintCanvasFile(const std::filesystem::path &path,
+                                         uint32_t width, uint32_t height,
+                                         std::vector<uint8_t> &pixels) {
+    if (path.empty() || !std::filesystem::exists(path)) {
+      return false;
+    }
+
+    const size_t expectedSize =
+        static_cast<size_t>(width) * static_cast<size_t>(height) * 4u;
+    std::ifstream file(path, std::ios::binary);
+    if (!file.is_open()) {
+      return false;
+    }
+
+    std::vector<uint8_t> loaded(expectedSize, 0);
+    file.read(reinterpret_cast<char *>(loaded.data()),
+              static_cast<std::streamsize>(expectedSize));
+    if (!file || static_cast<size_t>(file.gcount()) != expectedSize) {
+      return false;
+    }
+
+    pixels = std::move(loaded);
+    return true;
+  }
+
+  static bool writeTerrainPaintCanvasFile(const std::filesystem::path &path,
+                                          const std::vector<uint8_t> &pixels) {
+    if (path.empty() || pixels.empty()) {
+      return false;
+    }
+
+    std::error_code errorCode;
+    const auto parentPath = path.parent_path();
+    if (!parentPath.empty()) {
+      std::filesystem::create_directories(parentPath, errorCode);
+      if (errorCode) {
+        return false;
+      }
+    }
+
+    std::ofstream file(path, std::ios::binary | std::ios::trunc);
+    if (!file.is_open()) {
+      return false;
+    }
+
+    file.write(reinterpret_cast<const char *>(pixels.data()),
+               static_cast<std::streamsize>(pixels.size()));
+    return static_cast<bool>(file);
+  }
+
+  static glm::vec4 sampleTerrainBrushTexture(const TerrainPaintState &paintState,
+                                             float u, float v) {
+    if (paintState.brushPixels.empty() || paintState.brushWidth <= 0 ||
+        paintState.brushHeight <= 0) {
+      return glm::vec4(0.0f);
+    }
+
+    const int x = std::clamp(static_cast<int>(
+                                 std::floor(glm::clamp(u, 0.0f, 1.0f) *
+                                            static_cast<float>(paintState.brushWidth))),
+                             0, paintState.brushWidth - 1);
+    const int y = std::clamp(static_cast<int>(
+                                 std::floor(glm::clamp(v, 0.0f, 1.0f) *
+                                            static_cast<float>(paintState.brushHeight))),
+                             0, paintState.brushHeight - 1);
+    const size_t pixelIndex =
+        (static_cast<size_t>(y) * static_cast<size_t>(paintState.brushWidth) +
+         static_cast<size_t>(x)) *
+        4u;
+    return glm::vec4(
+        static_cast<float>(paintState.brushPixels[pixelIndex + 0]) / 255.0f,
+        static_cast<float>(paintState.brushPixels[pixelIndex + 1]) / 255.0f,
+        static_cast<float>(paintState.brushPixels[pixelIndex + 2]) / 255.0f,
+        static_cast<float>(paintState.brushPixels[pixelIndex + 3]) / 255.0f);
+  }
+
+  static float stableTerrainNoise(float x, float y) {
+    return glm::fract(std::sin(x * 127.1f + y * 311.7f) * 43758.5453f);
+  }
+
+  static glm::vec2 variedTerrainBrushUv(float tileU, float tileV,
+                                        float variation) {
+    const glm::vec2 baseUv(glm::fract(tileU), glm::fract(tileV));
+    if (variation <= 1e-6f) {
+      return baseUv;
+    }
+
+    const float cellX = std::floor(tileU);
+    const float cellY = std::floor(tileV);
+    const float rotateNoise = stableTerrainNoise(cellX, cellY);
+    const float mirrorNoise = stableTerrainNoise(cellX + 19.0f, cellY + 47.0f);
+    const float offsetNoiseX =
+        stableTerrainNoise(cellX + 101.0f, cellY + 13.0f) * 2.0f - 1.0f;
+    const float offsetNoiseY =
+        stableTerrainNoise(cellX + 73.0f, cellY + 151.0f) * 2.0f - 1.0f;
+
+    glm::vec2 transformedUv = baseUv;
+    const int rotationIndex = static_cast<int>(std::floor(rotateNoise * 4.0f)) % 4;
+    const glm::vec2 centered = transformedUv - glm::vec2(0.5f);
+    switch (rotationIndex) {
+    case 1:
+      transformedUv = glm::vec2(-centered.y, centered.x) + glm::vec2(0.5f);
+      break;
+    case 2:
+      transformedUv = glm::vec2(-centered.x, -centered.y) + glm::vec2(0.5f);
+      break;
+    case 3:
+      transformedUv = glm::vec2(centered.y, -centered.x) + glm::vec2(0.5f);
+      break;
+    default:
+      break;
+    }
+
+    if (mirrorNoise > 0.5f) {
+      transformedUv.x = 1.0f - transformedUv.x;
+    }
+    if (mirrorNoise < 0.25f) {
+      transformedUv.y = 1.0f - transformedUv.y;
+    }
+
+    const glm::vec2 offset =
+        glm::vec2(offsetNoiseX, offsetNoiseY) * (0.18f * variation);
+    transformedUv = glm::fract(transformedUv + offset);
+    return glm::mix(baseUv, transformedUv, variation);
+  }
+
+  static float brushFalloff(float distance) {
+    const float t = glm::clamp(1.0f - distance, 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+  }
+
+  static void applyTerrainPaintMaterial(ImportedMaterialData &material,
+                                        const SceneAssetInstance &sceneAsset,
+                                        const TerrainPaintState &paintState) {
+    material.paintCanvasTexture = ImportedTextureSource{
+        .resolvedPath = {},
+        .rgba = paintState.canvasPixels,
+        .width = static_cast<int>(paintState.canvasWidth),
+        .height = static_cast<int>(paintState.canvasHeight),
+    };
+    material.paintCanvasUvScale = sceneAsset.terrainConfig.uvScale;
   }
 
   void applyEngineConfigOverrides(DefaultDebugUISettings &settings) const {
@@ -323,6 +524,413 @@ private:
       persisted[index].visible = debugUiSettings.sceneObjects[index].visible;
     }
     return persisted;
+  }
+
+  TerrainPaintState &ensureTerrainPaintState(size_t terrainIndex) {
+    if (terrainPaintStates.size() < sceneAssets.size()) {
+      terrainPaintStates.resize(sceneAssets.size());
+    }
+
+    TerrainPaintState &paintState = terrainPaintStates[terrainIndex];
+    SceneAssetInstance &sceneAsset = sceneAssets[terrainIndex];
+    if (sceneAsset.kind != SceneAssetKind::Terrain) {
+      return paintState;
+    }
+
+    sceneAsset.terrainPaintCanvasResolution =
+        std::clamp(sceneAsset.terrainPaintCanvasResolution, 128u, 2048u);
+    const uint32_t canvasResolution = sceneAsset.terrainPaintCanvasResolution;
+    const size_t expectedCanvasSize =
+        static_cast<size_t>(canvasResolution) *
+        static_cast<size_t>(canvasResolution) * 4u;
+
+    if (sceneAsset.terrainPaintCanvasPath.empty()) {
+      sceneAsset.terrainPaintCanvasPath =
+          defaultTerrainPaintCanvasPath(terrainIndex, sceneAsset).string();
+      paintState.canvasPixels.assign(expectedCanvasSize, 0);
+      paintState.canvasWidth = canvasResolution;
+      paintState.canvasHeight = canvasResolution;
+      paintState.strokeActive = false;
+      paintState.strokeBasePixels.clear();
+      paintState.strokePixels.clear();
+      paintState.materialDirty = true;
+      paintState.canvasDirty = true;
+    } else if (paintState.canvasWidth != canvasResolution ||
+               paintState.canvasHeight != canvasResolution ||
+               paintState.canvasPixels.size() != expectedCanvasSize) {
+      if (!loadTerrainPaintCanvasFile(sceneAsset.terrainPaintCanvasPath,
+                                      canvasResolution, canvasResolution,
+                                      paintState.canvasPixels)) {
+        paintState.canvasPixels.assign(expectedCanvasSize, 0);
+        paintState.canvasDirty = true;
+      }
+      paintState.canvasWidth = canvasResolution;
+      paintState.canvasHeight = canvasResolution;
+      paintState.strokeActive = false;
+      paintState.strokeBasePixels.clear();
+      paintState.strokePixels.clear();
+      paintState.materialDirty = true;
+    }
+
+    if (paintState.loadedBrushTexturePath != sceneAsset.terrainBrushTexturePath) {
+      paintState.brushPixels.clear();
+      paintState.brushWidth = 0;
+      paintState.brushHeight = 0;
+      paintState.loadedBrushTexturePath = sceneAsset.terrainBrushTexturePath;
+
+      if (!sceneAsset.terrainBrushTexturePath.empty()) {
+        int brushWidth = 0;
+        int brushHeight = 0;
+        int brushChannels = 0;
+        stbi_uc *pixels = stbi_load(sceneAsset.terrainBrushTexturePath.c_str(),
+                                    &brushWidth, &brushHeight, &brushChannels,
+                                    STBI_rgb_alpha);
+        if (pixels != nullptr && brushWidth > 0 && brushHeight > 0) {
+          const size_t brushSize =
+              static_cast<size_t>(brushWidth) * static_cast<size_t>(brushHeight) *
+              4u;
+          paintState.brushPixels.assign(pixels, pixels + brushSize);
+          paintState.brushWidth = brushWidth;
+          paintState.brushHeight = brushHeight;
+          stbi_image_free(pixels);
+        } else {
+          std::cerr << "Failed to load terrain brush texture: "
+                    << sceneAsset.terrainBrushTexturePath << std::endl;
+        }
+      }
+    }
+
+    if (paintState.loadedUvScale != sceneAsset.terrainConfig.uvScale) {
+      paintState.loadedUvScale = sceneAsset.terrainConfig.uvScale;
+      paintState.materialDirty = true;
+    }
+
+    return paintState;
+  }
+
+  static void endTerrainPaintStroke(TerrainPaintState &paintState) {
+    if (!paintState.strokeActive) {
+      return;
+    }
+    paintState.strokeActive = false;
+    paintState.strokeBasePixels.clear();
+    paintState.strokePixels.clear();
+  }
+
+  bool applyTerrainPaintStamp(size_t terrainIndex, const glm::vec2 &localPosition) {
+    if (terrainIndex >= sceneAssets.size()) {
+      return false;
+    }
+
+    SceneAssetInstance &sceneAsset = sceneAssets[terrainIndex];
+    TerrainPaintState &paintState = ensureTerrainPaintState(terrainIndex);
+    if (sceneAsset.kind != SceneAssetKind::Terrain || paintState.canvasPixels.empty() ||
+        paintState.brushPixels.empty()) {
+      return false;
+    }
+
+    if (!paintState.strokeActive) {
+      paintState.strokeActive = true;
+      paintState.strokeBasePixels = paintState.canvasPixels;
+      paintState.strokePixels.assign(paintState.canvasPixels.size(), 0);
+    }
+
+    const float sizeX = std::max(sceneAsset.terrainConfig.sizeX, 1e-6f);
+    const float sizeZ = std::max(sceneAsset.terrainConfig.sizeZ, 1e-6f);
+    const float radius = std::max(sceneAsset.terrainBrushRadius, 1e-4f);
+    const float radiusU = radius / sizeX;
+    const float radiusV = radius / sizeZ;
+    const float centerU =
+        glm::clamp(localPosition.x / sizeX + 0.5f, 0.0f, 1.0f);
+    const float centerV =
+        glm::clamp(localPosition.y / sizeZ + 0.5f, 0.0f, 1.0f);
+
+    const int minX = std::max(
+        0, static_cast<int>(std::floor((centerU - radiusU) *
+                                       static_cast<float>(paintState.canvasWidth))));
+    const int maxX = std::min(
+        static_cast<int>(paintState.canvasWidth) - 1,
+        static_cast<int>(std::ceil((centerU + radiusU) *
+                                   static_cast<float>(paintState.canvasWidth))));
+    const int minY = std::max(
+        0, static_cast<int>(std::floor((centerV - radiusV) *
+                                       static_cast<float>(paintState.canvasHeight))));
+    const int maxY = std::min(
+        static_cast<int>(paintState.canvasHeight) - 1,
+        static_cast<int>(std::ceil((centerV + radiusV) *
+                                   static_cast<float>(paintState.canvasHeight))));
+
+    bool changed = false;
+    for (int y = minY; y <= maxY; ++y) {
+      const float canvasV =
+          (static_cast<float>(y) + 0.5f) / static_cast<float>(paintState.canvasHeight);
+      const float normalizedV = (canvasV - centerV) / std::max(radiusV, 1e-6f);
+      for (int x = minX; x <= maxX; ++x) {
+        const float canvasU =
+            (static_cast<float>(x) + 0.5f) /
+            static_cast<float>(paintState.canvasWidth);
+        const float normalizedU =
+            (canvasU - centerU) / std::max(radiusU, 1e-6f);
+        const float distance =
+            std::sqrt(normalizedU * normalizedU + normalizedV * normalizedV);
+        if (distance > 1.0f) {
+          continue;
+        }
+
+        const float tileU =
+            canvasU * std::max(sceneAsset.terrainConfig.uvScale.x, 1e-4f);
+        const float tileV =
+            canvasV * std::max(sceneAsset.terrainConfig.uvScale.y, 1e-4f);
+        const glm::vec2 variedBrushUv = variedTerrainBrushUv(
+            tileU, tileV, sceneAsset.terrainBrushTextureVariation);
+        const glm::vec4 brushSample = sampleTerrainBrushTexture(
+            paintState, variedBrushUv.x, variedBrushUv.y);
+        const float sourceAlpha = glm::clamp(
+            brushSample.a * sceneAsset.terrainBrushOpacity * brushFalloff(distance),
+            0.0f, 1.0f);
+        if (sourceAlpha <= 1e-5f) {
+          continue;
+        }
+
+        const size_t pixelIndex =
+            (static_cast<size_t>(y) * static_cast<size_t>(paintState.canvasWidth) +
+             static_cast<size_t>(x)) *
+            4u;
+        const float existingStrokeAlpha =
+            static_cast<float>(paintState.strokePixels[pixelIndex + 3]) / 255.0f;
+        if (sourceAlpha <= existingStrokeAlpha + 1e-5f) {
+          continue;
+        }
+
+        const glm::vec3 brushColor(brushSample.r, brushSample.g, brushSample.b);
+        paintState.strokePixels[pixelIndex + 0] =
+            static_cast<uint8_t>(glm::clamp(brushColor.r, 0.0f, 1.0f) * 255.0f +
+                                 0.5f);
+        paintState.strokePixels[pixelIndex + 1] =
+            static_cast<uint8_t>(glm::clamp(brushColor.g, 0.0f, 1.0f) * 255.0f +
+                                 0.5f);
+        paintState.strokePixels[pixelIndex + 2] =
+            static_cast<uint8_t>(glm::clamp(brushColor.b, 0.0f, 1.0f) * 255.0f +
+                                 0.5f);
+        paintState.strokePixels[pixelIndex + 3] =
+            static_cast<uint8_t>(sourceAlpha * 255.0f + 0.5f);
+
+        const glm::vec4 destination(
+            static_cast<float>(paintState.strokeBasePixels[pixelIndex + 0]) / 255.0f,
+            static_cast<float>(paintState.strokeBasePixels[pixelIndex + 1]) / 255.0f,
+            static_cast<float>(paintState.strokeBasePixels[pixelIndex + 2]) / 255.0f,
+            static_cast<float>(paintState.strokeBasePixels[pixelIndex + 3]) / 255.0f);
+        const float outAlpha = sourceAlpha + destination.a * (1.0f - sourceAlpha);
+        glm::vec3 outColor(0.0f);
+        if (outAlpha > 1e-5f) {
+          const glm::vec3 destinationColor(destination.r, destination.g,
+                                           destination.b);
+          outColor =
+              (brushColor * sourceAlpha +
+               destinationColor * destination.a * (1.0f - sourceAlpha)) /
+              outAlpha;
+        }
+
+        const auto toByte = [](float value) {
+          return static_cast<uint8_t>(glm::clamp(value, 0.0f, 1.0f) * 255.0f +
+                                      0.5f);
+        };
+        const uint8_t nextR = toByte(outColor.r);
+        const uint8_t nextG = toByte(outColor.g);
+        const uint8_t nextB = toByte(outColor.b);
+        const uint8_t nextA = toByte(outAlpha);
+        if (paintState.canvasPixels[pixelIndex + 0] == nextR &&
+            paintState.canvasPixels[pixelIndex + 1] == nextG &&
+            paintState.canvasPixels[pixelIndex + 2] == nextB &&
+            paintState.canvasPixels[pixelIndex + 3] == nextA) {
+          continue;
+        }
+
+        paintState.canvasPixels[pixelIndex + 0] = nextR;
+        paintState.canvasPixels[pixelIndex + 1] = nextG;
+        paintState.canvasPixels[pixelIndex + 2] = nextB;
+        paintState.canvasPixels[pixelIndex + 3] = nextA;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      paintState.materialDirty = true;
+      paintState.canvasDirty = true;
+    }
+    return changed;
+  }
+
+  bool eraseTerrainPaintCanvas(size_t terrainIndex, const glm::vec2 &localPosition,
+                               float eraseStrength) {
+    if (terrainIndex >= sceneAssets.size()) {
+      return false;
+    }
+
+    SceneAssetInstance &sceneAsset = sceneAssets[terrainIndex];
+    TerrainPaintState &paintState = ensureTerrainPaintState(terrainIndex);
+    if (sceneAsset.kind != SceneAssetKind::Terrain || paintState.canvasPixels.empty() ||
+        eraseStrength <= 1e-6f) {
+      return false;
+    }
+
+    endTerrainPaintStroke(paintState);
+
+    const float sizeX = std::max(sceneAsset.terrainConfig.sizeX, 1e-6f);
+    const float sizeZ = std::max(sceneAsset.terrainConfig.sizeZ, 1e-6f);
+    const float radius = std::max(sceneAsset.terrainBrushRadius, 1e-4f);
+    const float radiusU = radius / sizeX;
+    const float radiusV = radius / sizeZ;
+    const float centerU =
+        glm::clamp(localPosition.x / sizeX + 0.5f, 0.0f, 1.0f);
+    const float centerV =
+        glm::clamp(localPosition.y / sizeZ + 0.5f, 0.0f, 1.0f);
+
+    const int minX = std::max(
+        0, static_cast<int>(std::floor((centerU - radiusU) *
+                                       static_cast<float>(paintState.canvasWidth))));
+    const int maxX = std::min(
+        static_cast<int>(paintState.canvasWidth) - 1,
+        static_cast<int>(std::ceil((centerU + radiusU) *
+                                   static_cast<float>(paintState.canvasWidth))));
+    const int minY = std::max(
+        0, static_cast<int>(std::floor((centerV - radiusV) *
+                                       static_cast<float>(paintState.canvasHeight))));
+    const int maxY = std::min(
+        static_cast<int>(paintState.canvasHeight) - 1,
+        static_cast<int>(std::ceil((centerV + radiusV) *
+                                   static_cast<float>(paintState.canvasHeight))));
+
+    bool changed = false;
+    for (int y = minY; y <= maxY; ++y) {
+      const float canvasV =
+          (static_cast<float>(y) + 0.5f) / static_cast<float>(paintState.canvasHeight);
+      const float normalizedV = (canvasV - centerV) / std::max(radiusV, 1e-6f);
+      for (int x = minX; x <= maxX; ++x) {
+        const float canvasU =
+            (static_cast<float>(x) + 0.5f) /
+            static_cast<float>(paintState.canvasWidth);
+        const float normalizedU =
+            (canvasU - centerU) / std::max(radiusU, 1e-6f);
+        const float distance =
+            std::sqrt(normalizedU * normalizedU + normalizedV * normalizedV);
+        if (distance > 1.0f) {
+          continue;
+        }
+
+        const float eraseAmount = glm::clamp(
+            eraseStrength * brushFalloff(distance), 0.0f, 1.0f);
+        if (eraseAmount <= 1e-6f) {
+          continue;
+        }
+
+        const size_t pixelIndex =
+            (static_cast<size_t>(y) * static_cast<size_t>(paintState.canvasWidth) +
+             static_cast<size_t>(x)) *
+            4u;
+        const float currentAlpha =
+            static_cast<float>(paintState.canvasPixels[pixelIndex + 3]) / 255.0f;
+        const float nextAlpha =
+            glm::clamp(currentAlpha - eraseAmount, 0.0f, 1.0f);
+        const uint8_t nextAlphaByte =
+            static_cast<uint8_t>(nextAlpha * 255.0f + 0.5f);
+        if (paintState.canvasPixels[pixelIndex + 3] == nextAlphaByte) {
+          continue;
+        }
+
+        paintState.canvasPixels[pixelIndex + 3] = nextAlphaByte;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      paintState.materialDirty = true;
+      paintState.canvasDirty = true;
+    }
+    return changed;
+  }
+
+  void flushTerrainPaintMaterials(bool force = false) {
+    if (terrainPaintStates.empty()) {
+      return;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    const bool leftMouseDown =
+        glfwGetMouseButton(window.handle(), GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+    std::vector<size_t> dirtyTerrainIndices;
+    for (size_t terrainIndex = 0; terrainIndex < sceneAssets.size() &&
+                                 terrainIndex < terrainPaintStates.size();
+         ++terrainIndex) {
+      if (sceneAssets[terrainIndex].kind != SceneAssetKind::Terrain) {
+        continue;
+      }
+
+      TerrainPaintState &paintState = ensureTerrainPaintState(terrainIndex);
+      if (!paintState.materialDirty || sceneAssetModels.size() <= terrainIndex ||
+          sceneAssetModels[terrainIndex].modelAsset() == nullptr) {
+        continue;
+      }
+
+      const float secondsSinceUpload =
+          std::chrono::duration<float>(now - paintState.lastUploadTime).count();
+      if (!force && leftMouseDown && secondsSinceUpload < 0.08f) {
+        continue;
+      }
+
+      dirtyTerrainIndices.push_back(terrainIndex);
+    }
+
+    if (dirtyTerrainIndices.empty()) {
+      return;
+    }
+
+    backend.waitIdle();
+    bool renderItemsChanged = false;
+    for (const size_t terrainIndex : dirtyTerrainIndices) {
+      TerrainPaintState &paintState = terrainPaintStates[terrainIndex];
+      auto &materials = sceneAssetModels[terrainIndex].mutableMaterials();
+      if (materials.empty()) {
+        continue;
+      }
+
+      applyTerrainPaintMaterial(materials.front(), sceneAssets[terrainIndex],
+                                paintState);
+      sceneAssetModels[terrainIndex].syncMaterialResources(commandContext(),
+                                                           deviceContext());
+      paintState.materialDirty = false;
+      paintState.lastUploadTime = now;
+      renderItemsChanged = true;
+    }
+
+    if (renderItemsChanged) {
+      rebuildSceneRenderItems();
+    }
+  }
+
+  void saveTerrainPaintCanvasesToDisk() {
+    for (size_t terrainIndex = 0; terrainIndex < sceneAssets.size() &&
+                                 terrainIndex < terrainPaintStates.size();
+         ++terrainIndex) {
+      if (sceneAssets[terrainIndex].kind != SceneAssetKind::Terrain) {
+        continue;
+      }
+
+      TerrainPaintState &paintState = ensureTerrainPaintState(terrainIndex);
+      if (!paintState.canvasDirty ||
+          sceneAssets[terrainIndex].terrainPaintCanvasPath.empty()) {
+        continue;
+      }
+
+      if (!writeTerrainPaintCanvasFile(
+              sceneAssets[terrainIndex].terrainPaintCanvasPath,
+              paintState.canvasPixels)) {
+        std::cerr << "Failed to save terrain paint canvas to "
+                  << sceneAssets[terrainIndex].terrainPaintCanvasPath << std::endl;
+        continue;
+      }
+      paintState.canvasDirty = false;
+    }
   }
 
   static bool sameTerrainConfig(const TerrainConfig &lhs,
@@ -624,8 +1232,9 @@ private:
       return;
     }
 
-    const SceneAssetInstance &sceneAsset = sceneAssets[index];
+    SceneAssetInstance &sceneAsset = sceneAssets[index];
     if (sceneAsset.kind == SceneAssetKind::Terrain) {
+      TerrainPaintState &paintState = ensureTerrainPaintState(index);
       std::vector<ImportedMaterialData> existingMaterials;
       if (sceneAssetModels[index].modelAsset() != nullptr) {
         existingMaterials = sceneAssetModels[index].materials();
@@ -636,18 +1245,23 @@ private:
           commandContext(), deviceContext(), sceneDescriptorSetLayout(),
           sceneSecondaryDescriptorSetLayout(), frameGeometryUniforms, sampler,
           DEFAULT_ENGINE_MAX_FRAMES_IN_FLIGHT,
-          [existingMaterials = std::move(existingMaterials)](
+          [&sceneAsset, &paintState, existingMaterials = std::move(existingMaterials)](
               std::vector<ImportedMaterialData> &materials) {
-            if (existingMaterials.empty() || materials.empty()) {
+            if (materials.empty()) {
               return;
             }
-            const size_t materialCount =
-                std::min(existingMaterials.size(), materials.size());
-            for (size_t materialIndex = 0; materialIndex < materialCount;
-                 ++materialIndex) {
-              materials[materialIndex] = existingMaterials[materialIndex];
+            if (!existingMaterials.empty()) {
+              const size_t materialCount =
+                  std::min(existingMaterials.size(), materials.size());
+              for (size_t materialIndex = 0; materialIndex < materialCount;
+                   ++materialIndex) {
+                materials[materialIndex] = existingMaterials[materialIndex];
+              }
             }
+            applyTerrainPaintMaterial(materials.front(), sceneAsset, paintState);
           });
+      paintState.materialDirty = false;
+      paintState.lastUploadTime = std::chrono::steady_clock::now();
       return;
     }
 
@@ -684,15 +1298,24 @@ private:
         glfwGetMouseButton(window.handle(), GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
     if (io.WantCaptureMouse) {
       activeTerrainFlattenStroke.reset();
+      for (auto &paintState : terrainPaintStates) {
+        endTerrainPaintStroke(paintState);
+      }
       return;
     }
 
     if (!leftMouseDown) {
       activeTerrainFlattenStroke.reset();
+      for (auto &paintState : terrainPaintStates) {
+        endTerrainPaintStroke(paintState);
+      }
       return;
     }
 
     if (!hit.has_value()) {
+      for (auto &paintState : terrainPaintStates) {
+        endTerrainPaintStroke(paintState);
+      }
       return;
     }
 
@@ -702,8 +1325,13 @@ private:
     const float brushStep =
         sculptSpeedPerSecond * std::max(deltaSeconds, 1.0f / 240.0f);
     bool changed = false;
-    if (terrainAsset.terrainBrushColorPaintMode) {
+    if (terrainAsset.terrainBrushTexturePaintMode) {
       activeTerrainFlattenStroke.reset();
+      changed = applyTerrainPaintStamp(
+          hit->terrainIndex, {hit->localPosition.x, hit->localPosition.z});
+    } else if (terrainAsset.terrainBrushColorPaintMode) {
+      activeTerrainFlattenStroke.reset();
+      endTerrainPaintStroke(ensureTerrainPaintState(hit->terrainIndex));
       const float colorBlend =
           colorBlendPerSecond * std::max(deltaSeconds, 1.0f / 240.0f);
       changed = TerrainGenerator::applyColorBrush(
@@ -711,7 +1339,11 @@ private:
           {hit->localPosition.x, hit->localPosition.z},
           terrainAsset.terrainBrushRadius, terrainAsset.terrainBrushColor,
           colorBlend);
+      changed |= eraseTerrainPaintCanvas(
+          hit->terrainIndex, {hit->localPosition.x, hit->localPosition.z},
+          colorBlend);
     } else if (terrainAsset.terrainBrushFlattenMode) {
+      endTerrainPaintStroke(ensureTerrainPaintState(hit->terrainIndex));
       if (!activeTerrainFlattenStroke.has_value() ||
           activeTerrainFlattenStroke->terrainIndex != hit->terrainIndex) {
         activeTerrainFlattenStroke = TerrainFlattenStroke{
@@ -726,6 +1358,7 @@ private:
           activeTerrainFlattenStroke->targetHeight, brushStep);
     } else {
       activeTerrainFlattenStroke.reset();
+      endTerrainPaintStroke(ensureTerrainPaintState(hit->terrainIndex));
       const float heightStep =
           (terrainAsset.terrainBrushLowerMode ? -1.0f : 1.0f) * brushStep;
       changed = TerrainGenerator::applyBrush(
@@ -738,7 +1371,9 @@ private:
       return;
     }
 
-    reloadTerrainAsset(hit->terrainIndex);
+    if (!terrainAsset.terrainBrushTexturePaintMode) {
+      reloadTerrainAsset(hit->terrainIndex);
+    }
   }
 
   void updateTerrainEditOverlay(const glm::mat4 &view, const glm::mat4 &proj,
@@ -789,13 +1424,15 @@ private:
     const float lineHeight =
         std::max(terrainAsset.terrainBrushRadius * 0.75f, 0.6f);
     const glm::vec4 brushColor =
-        terrainAsset.terrainBrushColorPaintMode
-            ? terrainAsset.terrainBrushColor
+        terrainAsset.terrainBrushTexturePaintMode
+            ? glm::vec4(1.0f, 1.0f, 1.0f, 0.92f)
+            : (terrainAsset.terrainBrushColorPaintMode
+                   ? terrainAsset.terrainBrushColor
             : (terrainAsset.terrainBrushFlattenMode
             ? glm::vec4(0.22f, 0.72f, 0.96f, 1.0f)
             : (terrainAsset.terrainBrushLowerMode
                    ? glm::vec4(0.92f, 0.28f, 0.22f, 1.0f)
-                   : glm::vec4(0.95f, 0.85f, 0.2f, 1.0f)));
+                   : glm::vec4(0.95f, 0.85f, 0.2f, 1.0f))));
     debugOverlayPass->setToolMarkerMesh(terrainBrushIndicatorMesh);
     debugOverlayPass->setToolMarkers({DebugOverlayInstance{
         .model = basisTransform(
@@ -971,7 +1608,34 @@ private:
 
   void reloadSceneAssets() {
     backend.waitIdle();
+    std::unordered_map<std::string, TerrainPaintState> previousPaintStates;
+    for (size_t index = 0; index < sceneAssets.size() &&
+                         index < terrainPaintStates.size();
+         ++index) {
+      if (sceneAssets[index].kind != SceneAssetKind::Terrain ||
+          sceneAssets[index].terrainPaintCanvasPath.empty()) {
+        continue;
+      }
+      previousPaintStates.emplace(sceneAssets[index].terrainPaintCanvasPath,
+                                  std::move(terrainPaintStates[index]));
+    }
+
     sceneAssets = resolvedSceneAssets();
+    terrainPaintStates.clear();
+    terrainPaintStates.resize(sceneAssets.size());
+    for (size_t index = 0; index < sceneAssets.size(); ++index) {
+      if (sceneAssets[index].kind != SceneAssetKind::Terrain ||
+          sceneAssets[index].terrainPaintCanvasPath.empty()) {
+        continue;
+      }
+      const auto previousStateIt =
+          previousPaintStates.find(sceneAssets[index].terrainPaintCanvasPath);
+      if (previousStateIt == previousPaintStates.end()) {
+        continue;
+      }
+      terrainPaintStates[index] = std::move(previousStateIt->second);
+    }
+
     sceneAssetModels.clear();
     sceneAssetModels.resize(sceneAssets.size());
 
@@ -1001,11 +1665,13 @@ private:
     }
   }
 
-  void saveDebugSessionToDisk() const {
+  void saveDebugSessionToDisk() {
     if (!engineConfig.enableDebugSessionPersistence) {
       return;
     }
 
+    flushTerrainPaintMaterials(true);
+    saveTerrainPaintCanvasesToDisk();
     if (!DebugSessionIO::saveDebugSession(debugSessionPath(),
                                           debugUiSettings,
                                           persistedSceneAssets())) {
@@ -1263,6 +1929,7 @@ private:
     updateTerrainSculpting(
         raycastTerrainFromCursor(geometryUniformData.view, geometryUniformData.proj),
         deltaSeconds);
+    flushTerrainPaintMaterials();
     updateTerrainWireframeOverlay();
     updateTerrainEditOverlay(geometryUniformData.view, geometryUniformData.proj,
                              deltaSeconds);

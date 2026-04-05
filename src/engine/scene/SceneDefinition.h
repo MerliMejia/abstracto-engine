@@ -36,6 +36,12 @@ struct SceneAssetInstance {
   bool terrainBrushFlattenMode = false;
   bool terrainBrushColorPaintMode = false;
   glm::vec4 terrainBrushColor{0.38f, 0.62f, 0.24f, 1.0f};
+  bool terrainBrushTexturePaintMode = false;
+  float terrainBrushOpacity = 1.0f;
+  float terrainBrushTextureVariation = 0.0f;
+  uint32_t terrainPaintCanvasResolution = 1024;
+  std::string terrainPaintCanvasPath;
+  std::string terrainBrushTexturePath = "assets/textures/viking_room.png";
 
   static SceneAssetInstance fromAsset(std::string assetPathValue) {
     return SceneAssetInstance{

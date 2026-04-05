@@ -42,6 +42,34 @@ private:
     return extension == ".obj" || extension == ".gltf" || extension == ".glb";
   }
 
+  static bool isSupportedTerrainBrushTexturePath(
+      const std::filesystem::path &path) {
+    const std::string extension = path.extension().string();
+    return extension == ".png" || extension == ".jpg" || extension == ".jpeg";
+  }
+
+  static std::vector<std::filesystem::path> collectTerrainBrushTexturePaths() {
+    std::vector<std::filesystem::path> texturePaths;
+    std::error_code errorCode;
+    const std::filesystem::path textureRoot("assets/textures");
+    if (std::filesystem::exists(textureRoot, errorCode) &&
+        std::filesystem::is_directory(textureRoot, errorCode)) {
+      for (std::filesystem::recursive_directory_iterator iterator(textureRoot,
+                                                                  errorCode),
+           end;
+           iterator != end && !errorCode; iterator.increment(errorCode)) {
+        if (!iterator->is_regular_file(errorCode) ||
+            !isSupportedTerrainBrushTexturePath(iterator->path())) {
+          continue;
+        }
+        texturePaths.push_back(iterator->path().lexically_normal());
+      }
+    }
+
+    std::sort(texturePaths.begin(), texturePaths.end());
+    return texturePaths;
+  }
+
   static TerrainConfig defaultTerrainConfig() {
     return TerrainConfig{
         .sizeX = 18.0f,
@@ -601,9 +629,78 @@ private:
         ImGui::Checkbox("Lower Mode", &sceneAsset->terrainBrushLowerMode);
     result.assetChanged |=
         ImGui::Checkbox("Flatten Mode", &sceneAsset->terrainBrushFlattenMode);
-    result.assetChanged |= ImGui::Checkbox("Color Paint Mode",
-                                           &sceneAsset->terrainBrushColorPaintMode);
-    if (ImGui::ColorEdit4("Paint Color", &sceneAsset->terrainBrushColor.x)) {
+    result.assetChanged |= ImGui::Checkbox(
+        "Color Paint Mode", &sceneAsset->terrainBrushColorPaintMode);
+    result.assetChanged |=
+        ImGui::ColorEdit4("Paint Color", &sceneAsset->terrainBrushColor.x);
+    result.assetChanged |= ImGui::Checkbox(
+        "Texture Paint Mode", &sceneAsset->terrainBrushTexturePaintMode);
+    result.assetChanged |= ImGui::SliderFloat(
+        "Texture Paint Opacity", &sceneAsset->terrainBrushOpacity, 0.0f, 1.0f);
+    result.assetChanged |= ImGui::SliderFloat(
+        "Texture Variation", &sceneAsset->terrainBrushTextureVariation, 0.0f,
+        1.0f);
+    if (sceneAsset->terrainBrushTexturePaintMode) {
+      ImGui::TextUnformatted(
+          "Lower opacity keeps the paint already on the terrain visible below.");
+    }
+    if (ImGui::DragFloat("Brush Radius", &sceneAsset->terrainBrushRadius, 0.05f,
+                         0.05f, 128.0f, "%.2f")) {
+      sceneAsset->terrainBrushRadius =
+          std::clamp(sceneAsset->terrainBrushRadius, 0.05f, 128.0f);
+      result.assetChanged = true;
+    }
+    int canvasResolution =
+        static_cast<int>(sceneAsset->terrainPaintCanvasResolution);
+    if (ImGui::SliderInt("Paint Resolution", &canvasResolution, 128, 2048)) {
+      sceneAsset->terrainPaintCanvasResolution =
+          static_cast<uint32_t>(std::max(canvasResolution, 128));
+      sceneAsset->terrainPaintCanvasPath.clear();
+      result.assetChanged = true;
+    }
+    const std::vector<std::filesystem::path> brushTexturePaths =
+        collectTerrainBrushTexturePaths();
+    if (brushTexturePaths.empty()) {
+      ImGui::TextUnformatted("No brush textures found in assets/textures");
+    } else {
+      int selectedTextureIndex = 0;
+      bool selectedTextureFound = false;
+      for (int index = 0; index < static_cast<int>(brushTexturePaths.size());
+           ++index) {
+        if (brushTexturePaths[static_cast<size_t>(index)].generic_string() ==
+            sceneAsset->terrainBrushTexturePath) {
+          selectedTextureIndex = index;
+          selectedTextureFound = true;
+          break;
+        }
+      }
+
+      const std::string previewLabel =
+          selectedTextureFound
+              ? brushTexturePaths[static_cast<size_t>(selectedTextureIndex)]
+                    .filename()
+                    .string()
+              : std::string("<select texture>");
+      if (ImGui::BeginCombo("Brush Texture", previewLabel.c_str())) {
+        for (int index = 0; index < static_cast<int>(brushTexturePaths.size());
+             ++index) {
+          const bool selected = index == selectedTextureIndex;
+          const std::string label =
+              brushTexturePaths[static_cast<size_t>(index)].filename().string();
+          if (ImGui::Selectable(label.c_str(), selected)) {
+            sceneAsset->terrainBrushTexturePath =
+                brushTexturePaths[static_cast<size_t>(index)].generic_string();
+            result.assetChanged = true;
+          }
+          if (selected) {
+            ImGui::SetItemDefaultFocus();
+          }
+        }
+        ImGui::EndCombo();
+      }
+    }
+    if (ImGui::Button("Clear Paint Canvas")) {
+      sceneAsset->terrainPaintCanvasPath.clear();
       result.assetChanged = true;
     }
     if (ImGui::Button("Bucket Paint")) {
@@ -613,12 +710,6 @@ private:
                 sceneAsset->terrainBrushColor);
       result.assetChanged = true;
       result.geometryChanged = true;
-    }
-    if (ImGui::DragFloat("Brush Radius", &sceneAsset->terrainBrushRadius, 0.05f,
-                         0.05f, 128.0f, "%.2f")) {
-      sceneAsset->terrainBrushRadius =
-          std::clamp(sceneAsset->terrainBrushRadius, 0.05f, 128.0f);
-      result.assetChanged = true;
     }
     if (ImGui::Button("Reset Height Offsets")) {
       TerrainGenerator::ensureHeightOffsets(sceneAsset->terrainConfig);

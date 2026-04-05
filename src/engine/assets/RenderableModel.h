@@ -216,6 +216,22 @@ public:
     materialSet.updateMaterialParameters(convertMaterials(asset->materials()));
   }
 
+  void syncMaterialResources(CommandContext &commandContext,
+                             DeviceContext &deviceContext) {
+    if (asset == nullptr) {
+      throw std::runtime_error("RenderableModel has no loaded asset");
+    }
+    if (descriptorSetLayoutRef == nullptr || frameGeometryUniformsRef == nullptr ||
+        samplerRef == nullptr || framesInFlightValue == 0) {
+      throw std::runtime_error("RenderableModel material context is not initialized");
+    }
+
+    materialSet.create(deviceContext, commandContext, *descriptorSetLayoutRef,
+                       *frameGeometryUniformsRef, *samplerRef,
+                       convertMaterials(asset->materials()),
+                       framesInFlightValue);
+  }
+
   const ModelAsset *modelAsset() const { return asset.get(); }
 
   const SkeletonAssetData *skeletonAsset() const {
@@ -367,10 +383,12 @@ private:
             convertTextureSource(material.metallicRoughnessTexture),
         .emissiveTexture = convertTextureSource(material.emissiveTexture),
         .occlusionTexture = convertTextureSource(material.occlusionTexture),
+        .paintCanvasTexture = convertTextureSource(material.paintCanvasTexture),
         .metallicFactor = material.metallicFactor,
         .roughnessFactor = material.roughnessFactor,
         .emissiveFactor = material.emissiveFactor,
         .occlusionStrength = material.occlusionStrength,
+        .paintCanvasUvScale = material.paintCanvasUvScale,
         .raw = material.raw,
         .hasObjMaterial = material.hasObjMaterial,
     };
@@ -548,6 +566,10 @@ private:
                        frameGeometryUniforms, sampler,
                        convertMaterials(loadedAsset->materials()),
                        framesInFlight);
+    descriptorSetLayoutRef = &descriptorSetLayout;
+    frameGeometryUniformsRef = &frameGeometryUniforms;
+    samplerRef = &sampler;
+    framesInFlightValue = framesInFlight;
 
     if (const ImportedSkeletonData *loadedSkeleton = loadedAsset->skeletonAsset();
         loadedSkeleton != nullptr && !loadedSkeleton->nodes.empty()) {
@@ -578,6 +600,10 @@ private:
   std::unique_ptr<ModelAsset> asset;
   ImportedGeometryMesh geometryMesh;
   ModelMaterialSet materialSet;
+  const vk::raii::DescriptorSetLayout *descriptorSetLayoutRef = nullptr;
+  FrameGeometryUniforms *frameGeometryUniformsRef = nullptr;
+  Sampler *samplerRef = nullptr;
+  uint32_t framesInFlightValue = 0;
   std::optional<SkeletonAssetData> runtimeSkeleton;
   ModelAnimationState animationState;
   std::vector<SubmeshSkinPaletteResource> skinPaletteBindings;

@@ -145,6 +145,12 @@ static inline json sceneAssetToJson(const SceneAssetInstance &sceneAsset) {
       {"terrainBrushFlattenMode", sceneAsset.terrainBrushFlattenMode},
       {"terrainBrushColorPaintMode", sceneAsset.terrainBrushColorPaintMode},
       {"terrainBrushColor", vec4ToJson(sceneAsset.terrainBrushColor)},
+      {"terrainBrushTexturePaintMode", sceneAsset.terrainBrushTexturePaintMode},
+      {"terrainBrushOpacity", sceneAsset.terrainBrushOpacity},
+      {"terrainBrushTextureVariation", sceneAsset.terrainBrushTextureVariation},
+      {"terrainPaintCanvasResolution", sceneAsset.terrainPaintCanvasResolution},
+      {"terrainPaintCanvasPath", sceneAsset.terrainPaintCanvasPath},
+      {"terrainBrushTexturePath", sceneAsset.terrainBrushTexturePath},
   };
   if (sceneAsset.kind == SceneAssetKind::Terrain) {
     value["terrainConfig"] = terrainConfigToJson(sceneAsset.terrainConfig);
@@ -183,6 +189,23 @@ static inline SceneAssetInstance sceneAssetFromJson(const json &value) {
   sceneAsset.terrainBrushColor = vec4FromJson(
       value.value("terrainBrushColor", json::array()),
       sceneAsset.terrainBrushColor);
+  sceneAsset.terrainBrushTexturePaintMode = value.value(
+      "terrainBrushTexturePaintMode", sceneAsset.terrainBrushTexturePaintMode);
+  sceneAsset.terrainBrushOpacity =
+      glm::clamp(value.value("terrainBrushOpacity", sceneAsset.terrainBrushOpacity),
+                 0.0f, 1.0f);
+  sceneAsset.terrainBrushTextureVariation = glm::clamp(
+      value.value("terrainBrushTextureVariation",
+                  sceneAsset.terrainBrushTextureVariation),
+      0.0f, 1.0f);
+  sceneAsset.terrainPaintCanvasResolution = std::max(
+      value.value("terrainPaintCanvasResolution",
+                  sceneAsset.terrainPaintCanvasResolution),
+      64u);
+  sceneAsset.terrainPaintCanvasPath = value.value(
+      "terrainPaintCanvasPath", sceneAsset.terrainPaintCanvasPath);
+  sceneAsset.terrainBrushTexturePath = value.value(
+      "terrainBrushTexturePath", sceneAsset.terrainBrushTexturePath);
   if (sceneAsset.kind == SceneAssetKind::Terrain &&
       value.contains("terrainConfig") && value["terrainConfig"].is_object()) {
     sceneAsset.terrainConfig = terrainConfigFromJson(value["terrainConfig"]);

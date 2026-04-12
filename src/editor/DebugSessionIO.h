@@ -1,7 +1,7 @@
 #pragma once
 
 #include "DebugUIState.h"
-#include "engine/scene/SceneDefinition.h"
+#include "scene/SceneDefinition.h"
 #include <filesystem>
 #include <fstream>
 #include <json.hpp>

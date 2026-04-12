@@ -1,4 +1,4 @@
-#include "engine/runtime/DefaultEngineApp.h"
+#include "runtime/DefaultEngineApp.h"
 #include <cstdlib>
 #include <exception>
 #include <glm/glm.hpp>

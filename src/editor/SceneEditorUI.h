@@ -1,8 +1,8 @@
 #pragma once
 
 #include "DebugUIState.h"
-#include "engine/scene/AppSceneController.h"
-#include "engine/scene/SceneDefinition.h"
+#include "scene/AppSceneController.h"
+#include "scene/SceneDefinition.h"
 #include <algorithm>
 #include <filesystem>
 #include <string>

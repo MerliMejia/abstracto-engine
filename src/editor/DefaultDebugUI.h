@@ -4,7 +4,7 @@
 #include "DebugUIState.h"
 #include "RenderSettingsUI.h"
 #include "SceneEditorUI.h"
-#include "engine/scene/SceneDefinition.h"
+#include "scene/SceneDefinition.h"
 #include <utility>
 
 #include <imgui_internal.h>

@@ -13,7 +13,7 @@
 #include "lighting/ImageBasedLighting.h"
 #include "core/PassRenderer.h"
 #include "core/PipelineSpec.h"
-#include "engine/editor/DebugUIState.h"
+#include "editor/DebugUIState.h"
 #include <array>
 #include <memory>
 #include <string>

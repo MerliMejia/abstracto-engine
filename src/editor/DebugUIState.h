@@ -3,7 +3,7 @@
 #include "passes/PbrPass.h"
 #include "passes/TonemapPass.h"
 #include "lighting/ImageBasedLightingTypes.h"
-#include "engine/assets/RenderableModel.h"
+#include "assets/RenderableModel.h"
 #include "scene/SceneLightSet.h"
 #include "scene/SceneTypes.h"
 #include <algorithm>

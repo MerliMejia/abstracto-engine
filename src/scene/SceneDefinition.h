@@ -2,7 +2,7 @@
 
 #include "scene/SceneLightSet.h"
 #include "scene/SceneTypes.h"
-#include "engine/editor/DebugUIState.h"
+#include "editor/DebugUIState.h"
 #include "world/Terrain.h"
 #include <functional>
 #include <string>

@@ -4,7 +4,7 @@
 #include "assets/GltfModelAsset.h"
 #include "assets/ModelAsset.h"
 #include "assets/ObjModelAsset.h"
-#include "engine/assets/TerrainModelAsset.h"
+#include "assets/TerrainModelAsset.h"
 #include "core/RenderPass.h"
 #include "resources/FrameGeometryUniforms.h"
 #include "resources/Mesh.h"

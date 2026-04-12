@@ -1,6 +1,6 @@
 #pragma once
 
-#include "engine/editor/DebugUIState.h"
+#include "editor/DebugUIState.h"
 #include "SceneDefinition.h"
 #include <filesystem>
 #include <glm/gtc/matrix_transform.hpp>

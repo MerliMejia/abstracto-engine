@@ -1,6 +1,6 @@
 #pragma once
 
-#include "engine/editor/DebugUIState.h"
+#include "editor/DebugUIState.h"
 #include <filesystem>
 #include <functional>
 #include <optional>

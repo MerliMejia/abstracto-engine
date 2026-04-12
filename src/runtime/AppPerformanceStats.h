@@ -1,7 +1,7 @@
 #pragma once
 
-#include "engine/assets/RenderableModel.h"
-#include "engine/editor/DebugUIState.h"
+#include "assets/RenderableModel.h"
+#include "editor/DebugUIState.h"
 
 class AppPerformanceStats {
 public:

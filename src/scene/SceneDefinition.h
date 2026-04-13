@@ -1,7 +1,7 @@
 #pragma once
 
-#include "scene/SceneLightSet.h"
-#include "scene/SceneTypes.h"
+#include "SceneLightSet.h"
+#include "SceneTypes.h"
 #include "editor/DebugUIState.h"
 #include "world/Terrain.h"
 #include <functional>
@@ -12,6 +12,26 @@
 enum class SceneAssetKind {
   File = 0,
   Terrain = 1,
+  CharacterController = 2,
+};
+
+struct CharacterControllerConfig {
+  float radius = 0.35f;
+  float halfHeight = 0.55f;
+  float moveSpeed = 3.5f;
+  float jumpSpeed = 4.5f;
+  float gravity = 18.0f;
+  float maxSlopeDegrees = 45.0f;
+  bool alignToGroundNormal = true;
+  bool cameraFollow = true;
+  std::string visualAssetPath;
+};
+
+struct CharacterControllerState {
+  glm::vec3 position{0.0f};
+  glm::vec3 velocity{0.0f};
+  float yawRadians = 0.0f;
+  bool grounded = false;
 };
 
 struct SceneObjectOverride {
@@ -52,6 +72,8 @@ struct SceneAssetInstance {
   std::string terrainPaintCanvasPath;
   std::string terrainBrushTexturePath = "assets/textures/viking_room.png";
   std::vector<TerrainMaterialOverride> terrainMaterialOverrides;
+  CharacterControllerConfig characterControllerConfig{};
+  CharacterControllerState characterControllerState{};
 
   static SceneAssetInstance fromAsset(std::string assetPathValue) {
     return SceneAssetInstance{
@@ -67,6 +89,16 @@ struct SceneAssetInstance {
         .name = std::move(nameValue),
         .terrainConfig = std::move(config),
     };
+  }
+
+  static SceneAssetInstance
+  makeCharacterController(std::string nameValue = "Character Controller") {
+    SceneAssetInstance sceneAsset{
+        .kind = SceneAssetKind::CharacterController,
+        .name = std::move(nameValue),
+    };
+    sceneAsset.transform.position = sceneAsset.characterControllerState.position;
+    return sceneAsset;
   }
 };
 

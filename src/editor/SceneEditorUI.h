@@ -86,6 +86,13 @@ private:
     };
   }
 
+  static SceneAssetInstance defaultCharacterControllerAsset() {
+    SceneAssetInstance sceneAsset = SceneAssetInstance::makeCharacterController();
+    sceneAsset.transform.position = {0.0f, 1.25f, 0.0f};
+    sceneAsset.characterControllerState.position = sceneAsset.transform.position;
+    return sceneAsset;
+  }
+
   void addSceneAsset(SceneAssetInstance sceneAsset) {
     auto &settings = bindings.settings;
     bindings.sceneAssets.push_back(std::move(sceneAsset));
@@ -207,6 +214,10 @@ private:
             SceneAssetInstance::makeTerrain(defaultTerrainConfig(), "Terrain"));
         result.sceneAssetChanged = true;
         result.sceneGeometryChanged = true;
+      }
+      if (ImGui::MenuItem("Character Controller")) {
+        addSceneAsset(defaultCharacterControllerAsset());
+        result.sceneAssetChanged = true;
       }
       ImGui::Separator();
       if (ImGui::MenuItem("Directional Light")) {
@@ -525,7 +536,15 @@ private:
 
       }
     } else {
-      ImGui::TextUnformatted("Asset: Scene Model");
+      if (sceneAsset != nullptr &&
+          sceneAsset->kind == SceneAssetKind::CharacterController) {
+        ImGui::TextUnformatted("Asset: Character Controller");
+      } else if (sceneAsset != nullptr &&
+                 sceneAsset->kind == SceneAssetKind::Terrain) {
+        ImGui::TextUnformatted("Asset: Terrain");
+      } else {
+        ImGui::TextUnformatted("Asset: Scene Model");
+      }
     }
 
     ImGui::SeparatorText("Transform");

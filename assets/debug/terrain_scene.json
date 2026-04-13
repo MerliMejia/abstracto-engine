@@ -6,13 +6,13 @@
   "cameraFarPlane": 160.0,
   "cameraLookSensitivity": 0.0035000001080334187,
   "cameraMoveSpeed": 2.5,
-  "cameraPitchRadians": -0.5461370944976807,
+  "cameraPitchRadians": -0.5016894340515137,
   "cameraPosition": [
     6.4672017097473145,
     3.5402770042419434,
     -13.223227500915527
   ],
-  "cameraYawRadians": 3.1968438625335693,
+  "cameraYawRadians": 3.1027302742004395,
   "dielectricSpecularScale": 1.2929999828338623,
   "directionalShadowExtent": 13.329999923706055,
   "directionalShadowFarPlane": 24.0,
@@ -160,6 +160,45 @@
       "terrainPaintCanvasResolution": 1024,
       "terrainWireframeVisible": true,
       "visible": true
+    },
+    {
+      "assetPath": "",
+      "kind": 2,
+      "name": "Character Controller",
+      "position": [
+        0.0,
+        1.25,
+        0.0
+      ],
+      "rotationDegrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "terrainBrushColor": [
+        0.3799999952316284,
+        0.6200000047683716,
+        0.23999999463558197,
+        1.0
+      ],
+      "terrainBrushColorPaintMode": false,
+      "terrainBrushFlattenMode": false,
+      "terrainBrushLowerMode": false,
+      "terrainBrushOpacity": 1.0,
+      "terrainBrushRadius": 1.5,
+      "terrainBrushTexturePaintMode": false,
+      "terrainBrushTexturePath": "assets/textures/viking_room.png",
+      "terrainBrushTextureVariation": 0.0,
+      "terrainEditMode": false,
+      "terrainPaintCanvasPath": "",
+      "terrainPaintCanvasResolution": 1024,
+      "terrainWireframeVisible": false,
+      "visible": true
     }
   ],
   "sceneLights": [],
@@ -182,6 +221,25 @@
         1.0
       ],
       "visible": true
+    },
+    {
+      "name": "Character Controller",
+      "position": [
+        0.0,
+        1.25,
+        0.0
+      ],
+      "rotationDegrees": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ],
+      "visible": true
     }
   ],
   "selectedAnimationIndex": -1,
@@ -189,7 +247,7 @@
   "selectedBoneIndex": -1,
   "selectedLightIndex": -1,
   "selectedMaterialIndex": 0,
-  "selectedObjectIndex": 0,
+  "selectedObjectIndex": 1,
   "shadowsEnabled": true,
   "showBoneWeights": false,
   "skyboxVisible": true,

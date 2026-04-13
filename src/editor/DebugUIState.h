@@ -4,8 +4,8 @@
 #include "passes/TonemapPass.h"
 #include "lighting/ImageBasedLightingTypes.h"
 #include "assets/RenderableModel.h"
-#include "scene/SceneLightSet.h"
-#include "scene/SceneTypes.h"
+#include "SceneLightSet.h"
+#include "SceneTypes.h"
 #include <algorithm>
 #include <cmath>
 #include <cstdint>

@@ -124,6 +124,9 @@ public:
     if (sceneAsset.kind == SceneAssetKind::Terrain) {
       return "Terrain";
     }
+    if (sceneAsset.kind == SceneAssetKind::CharacterController) {
+      return "Character Controller";
+    }
     if (!sceneAsset.assetPath.empty()) {
       const std::string stem =
           std::filesystem::path(sceneAsset.assetPath).stem().string();

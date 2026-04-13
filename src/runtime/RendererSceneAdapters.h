@@ -1,6 +1,6 @@
 #pragma once
 
-#include "scene/SceneLightSet.h"
+#include "SceneLightSet.h"
 #include "passes/DebugOverlayPass.h"
 #include "passes/PbrPass.h"
 #include <algorithm>

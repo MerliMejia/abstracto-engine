@@ -548,10 +548,15 @@ private:
     }
 
     ImGui::SeparatorText("Transform");
-    ImGui::DragFloat3("Position", &object.transform.position.x, 0.01f);
-    ImGui::SliderFloat3("Rotation", &object.transform.rotationDegrees.x,
-                        -180.0f, 180.0f);
-    ImGui::DragFloat3("Scale", &object.transform.scale.x, 0.1f, 0.01f, 200.0f);
+    bool transformChanged = false;
+    transformChanged |=
+        ImGui::DragFloat3("Position", &object.transform.position.x, 0.01f);
+    transformChanged |= ImGui::SliderFloat3(
+        "Rotation", &object.transform.rotationDegrees.x, -180.0f, 180.0f);
+    transformChanged |=
+        ImGui::DragFloat3("Scale", &object.transform.scale.x, 0.1f, 0.01f,
+                          200.0f);
+    result.sceneAssetChanged |= transformChanged;
 
     const TerrainInspectorResult terrainResult =
         buildTerrainInspector(selectedIndex, sceneAsset);

@@ -16,6 +16,7 @@
 #include "backend/VulkanBackend.h"
 #include "core/PassRenderer.h"
 #include "core/RenderPass.h"
+#include "debug/CharacterControllerDebugMeshes.h"
 #include "debug/DebugLightMeshes.h"
 #include "debug/TerrainDebugMeshes.h"
 #include "passes/ShadowPass.h"
@@ -90,6 +91,8 @@ private:
   TypedMesh<Vertex> directionalLightMarkerMesh;
   TypedMesh<Vertex> boneSegmentMesh;
   TypedMesh<Vertex> boneJointMarkerMesh;
+  TypedMesh<Vertex> characterControllerRingMesh;
+  TypedMesh<Vertex> characterControllerVerticalLineMesh;
   TypedMesh<Vertex> terrainWireframeMesh;
   TypedMesh<Vertex> terrainBrushIndicatorMesh;
   FrameGeometryUniforms frameGeometryUniforms;
@@ -140,6 +143,12 @@ private:
   struct TerrainEditHit {
     size_t terrainIndex = 0;
     glm::vec3 localPosition{0.0f};
+    glm::vec3 worldPosition{0.0f};
+    glm::vec3 worldNormal{0.0f, 1.0f, 0.0f};
+  };
+
+  struct TerrainSurfaceSample {
+    size_t terrainIndex = 0;
     glm::vec3 worldPosition{0.0f};
     glm::vec3 worldNormal{0.0f, 1.0f, 0.0f};
   };
@@ -545,6 +554,16 @@ private:
       sceneAssets[index].transform = debugUiSettings.sceneObjects[index].transform;
       sceneAssets[index].visible = debugUiSettings.sceneObjects[index].visible;
     }
+    for (size_t index = 0; index < sceneObjectCount; ++index) {
+      if (sceneAssets[index].kind != SceneAssetKind::CharacterController) {
+        continue;
+      }
+      sceneAssets[index].characterControllerState.position =
+          sceneAssets[index].transform.position;
+      sceneAssets[index].characterControllerState.yawRadians =
+          glm::radians(sceneAssets[index].transform.rotationDegrees.y);
+      snapCharacterControllerToTerrain(index);
+    }
     syncTerrainMaterialOverridesInto(sceneAssets);
     sceneDefinition.assets = sceneAssets;
   }
@@ -558,6 +577,12 @@ private:
     for (size_t index = 0; index < sceneObjectCount; ++index) {
       persisted[index].transform = debugUiSettings.sceneObjects[index].transform;
       persisted[index].visible = debugUiSettings.sceneObjects[index].visible;
+      if (persisted[index].kind == SceneAssetKind::CharacterController) {
+        persisted[index].characterControllerState.position =
+            persisted[index].transform.position;
+        persisted[index].characterControllerState.yawRadians =
+            glm::radians(persisted[index].transform.rotationDegrees.y);
+      }
     }
     return persisted;
   }
@@ -1098,6 +1123,102 @@ private:
                                     heightBack - heightFront));
   }
 
+  std::optional<TerrainSurfaceSample>
+  sampleTerrainSurfaceAtWorldPosition(const glm::vec3 &worldPosition) const {
+    const size_t terrainCount =
+        std::min(sceneAssets.size(), debugUiSettings.sceneObjects.size());
+    std::optional<TerrainSurfaceSample> bestSample;
+    float bestDistance = std::numeric_limits<float>::max();
+
+    for (size_t index = 0; index < terrainCount; ++index) {
+      if (sceneAssets[index].kind != SceneAssetKind::Terrain ||
+          !debugUiSettings.sceneObjects[index].visible) {
+        continue;
+      }
+
+      const glm::mat4 terrainModel = AppSceneController::sceneTransformMatrix(
+          debugUiSettings.sceneObjects[index].transform);
+      const glm::mat4 inverseTerrainModel = glm::inverse(terrainModel);
+      const glm::vec3 localPosition =
+          glm::vec3(inverseTerrainModel * glm::vec4(worldPosition, 1.0f));
+      const TerrainConfig &terrainConfig = sceneAssets[index].terrainConfig;
+      const float halfSizeX = terrainConfig.sizeX * 0.5f;
+      const float halfSizeZ = terrainConfig.sizeZ * 0.5f;
+      if (localPosition.x < -halfSizeX || localPosition.x > halfSizeX ||
+          localPosition.z < -halfSizeZ || localPosition.z > halfSizeZ) {
+        continue;
+      }
+
+      const float localHeight = TerrainGenerator::sampleHeight(
+          terrainConfig, localPosition.x, localPosition.z);
+      const glm::vec3 localSurface(localPosition.x, localHeight, localPosition.z);
+      const glm::vec3 worldSurface =
+          glm::vec3(terrainModel * glm::vec4(localSurface, 1.0f));
+      const glm::vec3 localNormal =
+          terrainLocalNormal(terrainConfig, localSurface.x, localSurface.z);
+      const glm::vec3 worldNormal = glm::normalize(
+          glm::transpose(glm::inverse(glm::mat3(terrainModel))) * localNormal);
+      const float distance = std::abs(worldPosition.y - worldSurface.y);
+      if (bestSample.has_value() && distance >= bestDistance) {
+        continue;
+      }
+
+      bestSample = TerrainSurfaceSample{
+          .terrainIndex = index,
+          .worldPosition = worldSurface,
+          .worldNormal = worldNormal,
+      };
+      bestDistance = distance;
+    }
+
+    return bestSample;
+  }
+
+  bool snapCharacterControllerToTerrain(size_t characterIndex) {
+    if (characterIndex >= sceneAssets.size() ||
+        characterIndex >= debugUiSettings.sceneObjects.size() ||
+        sceneAssets[characterIndex].kind != SceneAssetKind::CharacterController) {
+      return false;
+    }
+
+    SceneAssetInstance &characterAsset = sceneAssets[characterIndex];
+    SceneObject &characterObject = debugUiSettings.sceneObjects[characterIndex];
+    const auto surfaceSample = sampleTerrainSurfaceAtWorldPosition(
+        characterAsset.characterControllerState.position);
+    if (!surfaceSample.has_value()) {
+      return false;
+    }
+
+    const float supportOffset = characterAsset.characterControllerConfig.radius +
+                                characterAsset.characterControllerConfig.halfHeight;
+    const glm::vec3 snappedPosition =
+        surfaceSample->worldPosition + glm::vec3(0.0f, supportOffset, 0.0f);
+    if (glm::all(glm::epsilonEqual(characterAsset.characterControllerState.position,
+                                   snappedPosition, 1e-4f))) {
+      characterObject.transform.position = snappedPosition;
+      characterAsset.transform.position = snappedPosition;
+      return false;
+    }
+
+    characterAsset.characterControllerState.position = snappedPosition;
+    characterAsset.transform.position = snappedPosition;
+    characterObject.transform.position = snappedPosition;
+    sceneDefinition.assets = sceneAssets;
+    return true;
+  }
+
+  void updateCharacterControllerTerrainAnchors() {
+    bool anyChanged = false;
+    const size_t characterCount =
+        std::min(sceneAssets.size(), debugUiSettings.sceneObjects.size());
+    for (size_t index = 0; index < characterCount; ++index) {
+      anyChanged |= snapCharacterControllerToTerrain(index);
+    }
+    if (anyChanged) {
+      sceneDefinition.assets = sceneAssets;
+    }
+  }
+
   static std::optional<glm::vec2>
   intersectRayAabb(const glm::vec3 &origin, const glm::vec3 &direction,
                    const glm::vec3 &boundsMin, const glm::vec3 &boundsMax) {
@@ -1628,6 +1749,75 @@ private:
     return {0.18f, 0.86f, 1.0f, 1.0f};
   }
 
+  void updateCharacterControllerOverlay() {
+    if (debugOverlayPass == nullptr) {
+      return;
+    }
+
+    std::vector<DebugOverlayInstance> characterMarkers;
+    std::vector<DebugOverlayInstance> characterSegments;
+    const size_t objectCount =
+        std::min(sceneAssets.size(), debugUiSettings.sceneObjects.size());
+    characterMarkers.reserve(objectCount * 2);
+    characterSegments.reserve(objectCount * 4);
+
+    for (size_t index = 0; index < objectCount; ++index) {
+      if (sceneAssets[index].kind != SceneAssetKind::CharacterController ||
+          !debugUiSettings.sceneObjects[index].visible) {
+        continue;
+      }
+
+      const SceneAssetInstance &sceneAsset = sceneAssets[index];
+      const glm::vec3 position = sceneAsset.characterControllerState.position;
+      const float radius = sceneAsset.characterControllerConfig.radius;
+      const float halfHeight = sceneAsset.characterControllerConfig.halfHeight;
+      const float yawRadians = sceneAsset.characterControllerState.yawRadians;
+      const glm::mat4 yawRotation = glm::rotate(
+          glm::mat4(1.0f), yawRadians, glm::vec3(0.0f, 1.0f, 0.0f));
+      const glm::vec4 color =
+          static_cast<int>(index) == debugUiSettings.selectedObjectIndex &&
+                  debugUiSettings.selectedLightIndex < 0 &&
+                  debugUiSettings.selectedBoneIndex < 0
+              ? glm::vec4(1.0f, 0.66f, 0.12f, 1.0f)
+              : glm::vec4(0.16f, 0.92f, 1.0f, 1.0f);
+
+      for (const float yOffset : {halfHeight, -halfHeight}) {
+        characterMarkers.push_back(DebugOverlayInstance{
+            .model = glm::translate(glm::mat4(1.0f),
+                                    position + glm::vec3(0.0f, yOffset, 0.0f)) *
+                     yawRotation *
+                     glm::scale(glm::mat4(1.0f),
+                                glm::vec3(radius, 1.0f, radius)),
+            .color = color,
+        });
+      }
+
+      const std::array<glm::vec3, 4> sideOffsets = {
+          glm::vec3(radius, 0.0f, 0.0f),
+          glm::vec3(-radius, 0.0f, 0.0f),
+          glm::vec3(0.0f, 0.0f, radius),
+          glm::vec3(0.0f, 0.0f, -radius),
+      };
+      for (const glm::vec3 &sideOffset : sideOffsets) {
+        const glm::vec3 worldOffset =
+            glm::vec3(yawRotation * glm::vec4(sideOffset, 0.0f));
+        characterSegments.push_back(DebugOverlayInstance{
+            .model = glm::translate(glm::mat4(1.0f), position + worldOffset) *
+                     glm::scale(glm::mat4(1.0f),
+                                glm::vec3(1.0f, halfHeight, 1.0f)),
+            .color = color,
+        });
+      }
+    }
+
+    debugOverlayPass->setCharacterMarkerMesh(characterControllerRingMesh);
+    debugOverlayPass->setCharacterSegmentMesh(
+        characterControllerVerticalLineMesh);
+    debugOverlayPass->setCharacterMarkers(std::move(characterMarkers));
+    debugOverlayPass->setCharacterSegments(std::move(characterSegments));
+    debugOverlayPass->setCharacterVisible(true);
+  }
+
   void updateBoneOverlay() {
     if (debugOverlayPass == nullptr) {
       return;
@@ -1853,6 +2043,19 @@ private:
     boneJointMarkerMesh.createVertexBuffer(commandContext(), deviceContext());
     boneJointMarkerMesh.createIndexBuffer(commandContext(), deviceContext());
 
+    characterControllerRingMesh = buildCharacterControllerRingMesh();
+    characterControllerRingMesh.createVertexBuffer(commandContext(),
+                                                   deviceContext());
+    characterControllerRingMesh.createIndexBuffer(commandContext(),
+                                                  deviceContext());
+
+    characterControllerVerticalLineMesh =
+        buildCharacterControllerVerticalLineMesh();
+    characterControllerVerticalLineMesh.createVertexBuffer(commandContext(),
+                                                          deviceContext());
+    characterControllerVerticalLineMesh.createIndexBuffer(commandContext(),
+                                                         deviceContext());
+
     terrainBrushIndicatorMesh = buildTerrainBrushIndicatorMesh();
     terrainBrushIndicatorMesh.createVertexBuffer(commandContext(),
                                                 deviceContext());
@@ -2061,9 +2264,11 @@ private:
         raycastTerrainFromCursor(geometryUniformData.view, geometryUniformData.proj),
         deltaSeconds);
     flushTerrainPaintMaterials();
+    updateCharacterControllerTerrainAnchors();
     updateTerrainWireframeOverlay();
     updateTerrainEditOverlay(geometryUniformData.view, geometryUniformData.proj,
                              deltaSeconds);
+    updateCharacterControllerOverlay();
     updateBoneOverlay();
     if (tonemapPass != nullptr) {
       const glm::vec3 lightRadiance = estimatedSceneLightRadiance();

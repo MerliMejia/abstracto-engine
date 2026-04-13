@@ -163,6 +163,62 @@ terrainMaterialOverrideFromJson(const json &value) {
   return materialOverride;
 }
 
+static inline json
+characterControllerConfigToJson(const CharacterControllerConfig &config) {
+  return {
+      {"radius", config.radius},
+      {"halfHeight", config.halfHeight},
+      {"moveSpeed", config.moveSpeed},
+      {"jumpSpeed", config.jumpSpeed},
+      {"gravity", config.gravity},
+      {"maxSlopeDegrees", config.maxSlopeDegrees},
+      {"alignToGroundNormal", config.alignToGroundNormal},
+      {"cameraFollow", config.cameraFollow},
+      {"visualAssetPath", config.visualAssetPath},
+  };
+}
+
+static inline CharacterControllerConfig
+characterControllerConfigFromJson(const json &value) {
+  CharacterControllerConfig config;
+  config.radius = std::max(value.value("radius", config.radius), 0.01f);
+  config.halfHeight =
+      std::max(value.value("halfHeight", config.halfHeight), 0.01f);
+  config.moveSpeed = std::max(value.value("moveSpeed", config.moveSpeed), 0.0f);
+  config.jumpSpeed = value.value("jumpSpeed", config.jumpSpeed);
+  config.gravity = std::max(value.value("gravity", config.gravity), 0.0f);
+  config.maxSlopeDegrees = glm::clamp(
+      value.value("maxSlopeDegrees", config.maxSlopeDegrees), 0.0f, 89.0f);
+  config.alignToGroundNormal = value.value("alignToGroundNormal",
+                                           config.alignToGroundNormal);
+  config.cameraFollow = value.value("cameraFollow", config.cameraFollow);
+  config.visualAssetPath =
+      value.value("visualAssetPath", config.visualAssetPath);
+  return config;
+}
+
+static inline json
+characterControllerStateToJson(const CharacterControllerState &state) {
+  return {
+      {"position", vec3ToJson(state.position)},
+      {"velocity", vec3ToJson(state.velocity)},
+      {"yawRadians", state.yawRadians},
+      {"grounded", state.grounded},
+  };
+}
+
+static inline CharacterControllerState
+characterControllerStateFromJson(const json &value) {
+  CharacterControllerState state;
+  state.position =
+      vec3FromJson(value.value("position", json::array()), state.position);
+  state.velocity =
+      vec3FromJson(value.value("velocity", json::array()), state.velocity);
+  state.yawRadians = value.value("yawRadians", state.yawRadians);
+  state.grounded = value.value("grounded", state.grounded);
+  return state;
+}
+
 static inline json sceneAssetToJson(const SceneAssetInstance &sceneAsset) {
   json value = {
       {"kind", static_cast<uint32_t>(sceneAsset.kind)},
@@ -196,6 +252,11 @@ static inline json sceneAssetToJson(const SceneAssetInstance &sceneAsset) {
       }
       value["terrainMaterialOverrides"] = std::move(materialOverrides);
     }
+  } else if (sceneAsset.kind == SceneAssetKind::CharacterController) {
+    value["characterControllerConfig"] =
+        characterControllerConfigToJson(sceneAsset.characterControllerConfig);
+    value["characterControllerState"] =
+        characterControllerStateToJson(sceneAsset.characterControllerState);
   }
   return value;
 }
@@ -263,6 +324,24 @@ static inline SceneAssetInstance sceneAssetFromJson(const json &value) {
       sceneAsset.terrainMaterialOverrides.push_back(
           terrainMaterialOverrideFromJson(materialOverrideValue));
     }
+  } else if (sceneAsset.kind == SceneAssetKind::CharacterController) {
+    if (value.contains("characterControllerConfig") &&
+        value["characterControllerConfig"].is_object()) {
+      sceneAsset.characterControllerConfig =
+          characterControllerConfigFromJson(value["characterControllerConfig"]);
+    }
+    if (value.contains("characterControllerState") &&
+        value["characterControllerState"].is_object()) {
+      sceneAsset.characterControllerState =
+          characterControllerStateFromJson(value["characterControllerState"]);
+    } else {
+      sceneAsset.characterControllerState.position = sceneAsset.transform.position;
+      sceneAsset.characterControllerState.yawRadians =
+          glm::radians(sceneAsset.transform.rotationDegrees.y);
+    }
+    sceneAsset.transform.position = sceneAsset.characterControllerState.position;
+    sceneAsset.transform.rotationDegrees.y =
+        glm::degrees(sceneAsset.characterControllerState.yawRadians);
   }
   return sceneAsset;
 }

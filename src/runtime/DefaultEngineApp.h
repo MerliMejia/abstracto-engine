@@ -7,7 +7,11 @@
 #include "SceneRenderItemBuilder.h"
 #include "ShadowSystem.h"
 #include "assets/RenderableModel.h"
-#include "editor/DebugSessionIO.h"
+#include "default_engine/DefaultEngineCharacterControllerRuntime.h"
+#include "default_engine/DefaultEngineDebugOverlayRuntime.h"
+#include "default_engine/DefaultEngineSceneAssetRuntime.h"
+#include "default_engine/DefaultEngineSessionRuntime.h"
+#include "default_engine/DefaultEngineTerrainRuntime.h"
 #include "editor/DefaultDebugUI.h"
 #include "scene/AppSceneController.h"
 #include "scene/SceneDefinition.h"
@@ -30,18 +34,13 @@
 #elif defined(_WIN32)
 #include <windows.h>
 #elif defined(__linux__)
-#include <fstream>
 #endif
 #include <algorithm>
 #include <array>
 #include <chrono>
 #include <cctype>
 #include <cmath>
-#include <fstream>
 #include <filesystem>
-#include <iostream>
-#include <limits>
-#include <unordered_map>
 #include <utility>
 
 class DefaultEngineApp {
@@ -74,6 +73,9 @@ public:
   }
 
 private:
+  using TerrainPaintState = DefaultEngineTerrainPaintState;
+  using TerrainEditHit = DefaultEngineTerrainEditHit;
+
   DefaultEngineConfig engineConfig;
   SceneDefinition sceneDefinition;
   AppWindow window;
@@ -116,46 +118,75 @@ private:
   bool debugUiToggleHeld = false;
   int activeTerrainWireframeIndex = -1;
   std::optional<TerrainConfig> activeTerrainWireframeConfig;
-  struct TerrainPaintState {
-    std::vector<uint8_t> canvasPixels;
-    uint32_t canvasWidth = 0;
-    uint32_t canvasHeight = 0;
-    std::vector<uint8_t> brushPixels;
-    int brushWidth = 0;
-    int brushHeight = 0;
-    std::string loadedBrushTexturePath;
-    glm::vec2 loadedUvScale{1.0f, 1.0f};
-    bool materialDirty = false;
-    bool canvasDirty = false;
-    bool strokeActive = false;
-    std::vector<uint8_t> strokeBasePixels;
-    std::vector<uint8_t> strokePixels;
-    std::chrono::steady_clock::time_point lastUploadTime =
-        std::chrono::steady_clock::now();
-  };
-  struct TerrainFlattenStroke {
-    size_t terrainIndex = 0;
-    float targetHeight = 0.0f;
-  };
-  std::optional<TerrainFlattenStroke> activeTerrainFlattenStroke;
-  std::vector<TerrainPaintState> terrainPaintStates;
-
-  struct TerrainEditHit {
-    size_t terrainIndex = 0;
-    glm::vec3 localPosition{0.0f};
-    glm::vec3 worldPosition{0.0f};
-    glm::vec3 worldNormal{0.0f, 1.0f, 0.0f};
-  };
-
-  struct TerrainSurfaceSample {
-    size_t terrainIndex = 0;
-    glm::vec3 worldPosition{0.0f};
-    glm::vec3 worldNormal{0.0f, 1.0f, 0.0f};
-  };
+  std::optional<DefaultEngineTerrainFlattenStroke> activeTerrainFlattenStroke;
+  std::vector<DefaultEngineTerrainPaintState> terrainPaintStates;
 
   DeviceContext &deviceContext() { return backend.device(); }
   SwapchainContext &swapchainContext() { return backend.swapchain(); }
   CommandContext &commandContext() { return backend.commands(); }
+
+  DefaultEngineSceneAssetRuntimeContext sceneAssetRuntimeContext() {
+    return DefaultEngineSceneAssetRuntimeContext{
+        .engineConfig = engineConfig,
+        .sceneDefinition = sceneDefinition,
+        .sceneAssets = sceneAssets,
+        .sceneAssetModels = sceneAssetModels,
+        .terrainPaintStates = terrainPaintStates,
+        .debugUiSettings = debugUiSettings,
+        .backend = backend,
+        .frameGeometryUniforms = frameGeometryUniforms,
+        .sampler = sampler,
+    };
+  }
+
+  DefaultEngineTerrainRuntimeContext terrainRuntimeContext() {
+    return DefaultEngineTerrainRuntimeContext{
+        .sceneDefinition = sceneDefinition,
+        .sceneAssets = sceneAssets,
+        .sceneAssetModels = sceneAssetModels,
+        .terrainPaintStates = terrainPaintStates,
+        .activeTerrainFlattenStroke = activeTerrainFlattenStroke,
+        .debugUiSettings = debugUiSettings,
+        .window = window,
+        .backend = backend,
+        .debugOverlayPass = debugOverlayPass,
+        .terrainWireframeMesh = terrainWireframeMesh,
+        .terrainBrushIndicatorMesh = terrainBrushIndicatorMesh,
+        .activeTerrainWireframeIndex = activeTerrainWireframeIndex,
+        .activeTerrainWireframeConfig = activeTerrainWireframeConfig,
+    };
+  }
+
+  DefaultEngineCharacterControllerRuntimeContext
+  characterControllerRuntimeContext() {
+    return DefaultEngineCharacterControllerRuntimeContext{
+        .sceneDefinition = sceneDefinition,
+        .sceneAssets = sceneAssets,
+        .debugUiSettings = debugUiSettings,
+    };
+  }
+
+  DefaultEngineDebugOverlayRuntimeContext debugOverlayRuntimeContext() {
+    return DefaultEngineDebugOverlayRuntimeContext{
+        .sceneAssets = sceneAssets,
+        .sceneAssetModels = sceneAssetModels,
+        .debugUiSettings = debugUiSettings,
+        .debugOverlayPass = debugOverlayPass,
+        .characterControllerRingMesh = characterControllerRingMesh,
+        .characterControllerVerticalLineMesh = characterControllerVerticalLineMesh,
+    };
+  }
+
+  DefaultEngineSessionRuntimeContext sessionRuntimeContext() {
+    return DefaultEngineSessionRuntimeContext{
+        .engineConfig = engineConfig,
+        .sceneDefinition = sceneDefinition,
+        .debugUiSettings = debugUiSettings,
+        .backend = backend,
+        .imageBasedLighting = imageBasedLighting,
+        .renderer = renderer,
+    };
+  }
 
   static bool isDebuggerAttached() {
 #if defined(__APPLE__)
@@ -211,232 +242,82 @@ private:
   }
 
   static std::string sanitizePathFragment(std::string value) {
-    for (char &character : value) {
-      if (std::isalnum(static_cast<unsigned char>(character)) != 0) {
-        character = static_cast<char>(std::tolower(
-            static_cast<unsigned char>(character)));
-        continue;
-      }
-      character = '_';
-    }
-
-    value.erase(std::unique(value.begin(), value.end(),
-                            [](char lhs, char rhs) {
-                              return lhs == '_' && rhs == '_';
-                            }),
-                value.end());
-    while (!value.empty() && value.front() == '_') {
-      value.erase(value.begin());
-    }
-    while (!value.empty() && value.back() == '_') {
-      value.pop_back();
-    }
-    if (value.empty()) {
-      return "terrain";
-    }
-    return value;
+    return DefaultEngineTerrainRuntime::sanitizePathFragment(std::move(value));
   }
 
   std::filesystem::path defaultTerrainPaintCanvasPath(
       size_t terrainIndex, const SceneAssetInstance &sceneAsset) const {
-    const std::string baseName =
-        sceneAsset.name.empty() ? "terrain" : sceneAsset.name;
-    return std::filesystem::path("assets") / "debug" /
-           (sanitizePathFragment(baseName) + "_paint_" +
-            std::to_string(terrainIndex) + ".rgba");
+    return DefaultEngineTerrainRuntime::defaultTerrainPaintCanvasPath(
+        terrainIndex, sceneAsset);
   }
 
   static bool loadTerrainPaintCanvasFile(const std::filesystem::path &path,
                                          uint32_t width, uint32_t height,
                                          std::vector<uint8_t> &pixels) {
-    if (path.empty() || !std::filesystem::exists(path)) {
-      return false;
-    }
-
-    const size_t expectedSize =
-        static_cast<size_t>(width) * static_cast<size_t>(height) * 4u;
-    std::ifstream file(path, std::ios::binary);
-    if (!file.is_open()) {
-      return false;
-    }
-
-    std::vector<uint8_t> loaded(expectedSize, 0);
-    file.read(reinterpret_cast<char *>(loaded.data()),
-              static_cast<std::streamsize>(expectedSize));
-    if (!file || static_cast<size_t>(file.gcount()) != expectedSize) {
-      return false;
-    }
-
-    pixels = std::move(loaded);
-    return true;
+    return DefaultEngineTerrainRuntime::loadTerrainPaintCanvasFile(path, width,
+                                                                   height, pixels);
   }
 
   static bool writeTerrainPaintCanvasFile(const std::filesystem::path &path,
                                           const std::vector<uint8_t> &pixels) {
-    if (path.empty() || pixels.empty()) {
-      return false;
-    }
-
-    std::error_code errorCode;
-    const auto parentPath = path.parent_path();
-    if (!parentPath.empty()) {
-      std::filesystem::create_directories(parentPath, errorCode);
-      if (errorCode) {
-        return false;
-      }
-    }
-
-    std::ofstream file(path, std::ios::binary | std::ios::trunc);
-    if (!file.is_open()) {
-      return false;
-    }
-
-    file.write(reinterpret_cast<const char *>(pixels.data()),
-               static_cast<std::streamsize>(pixels.size()));
-    return static_cast<bool>(file);
+    return DefaultEngineTerrainRuntime::writeTerrainPaintCanvasFile(path, pixels);
   }
 
-  static glm::vec4 sampleTerrainBrushTexture(const TerrainPaintState &paintState,
+  static glm::vec4 sampleTerrainBrushTexture(
+      const DefaultEngineTerrainPaintState &paintState,
                                              float u, float v) {
-    if (paintState.brushPixels.empty() || paintState.brushWidth <= 0 ||
-        paintState.brushHeight <= 0) {
-      return glm::vec4(0.0f);
-    }
-
-    const int x = std::clamp(static_cast<int>(
-                                 std::floor(glm::clamp(u, 0.0f, 1.0f) *
-                                            static_cast<float>(paintState.brushWidth))),
-                             0, paintState.brushWidth - 1);
-    const int y = std::clamp(static_cast<int>(
-                                 std::floor(glm::clamp(v, 0.0f, 1.0f) *
-                                            static_cast<float>(paintState.brushHeight))),
-                             0, paintState.brushHeight - 1);
-    const size_t pixelIndex =
-        (static_cast<size_t>(y) * static_cast<size_t>(paintState.brushWidth) +
-         static_cast<size_t>(x)) *
-        4u;
-    return glm::vec4(
-        static_cast<float>(paintState.brushPixels[pixelIndex + 0]) / 255.0f,
-        static_cast<float>(paintState.brushPixels[pixelIndex + 1]) / 255.0f,
-        static_cast<float>(paintState.brushPixels[pixelIndex + 2]) / 255.0f,
-        static_cast<float>(paintState.brushPixels[pixelIndex + 3]) / 255.0f);
+    return DefaultEngineTerrainRuntime::sampleTerrainBrushTexture(paintState, u,
+                                                                  v);
   }
 
   static float stableTerrainNoise(float x, float y) {
-    return glm::fract(std::sin(x * 127.1f + y * 311.7f) * 43758.5453f);
+    return DefaultEngineTerrainRuntime::stableTerrainNoise(x, y);
   }
 
   static glm::vec2 variedTerrainBrushUv(float tileU, float tileV,
                                         float variation) {
-    const glm::vec2 baseUv(glm::fract(tileU), glm::fract(tileV));
-    if (variation <= 1e-6f) {
-      return baseUv;
-    }
-
-    const float cellX = std::floor(tileU);
-    const float cellY = std::floor(tileV);
-    const float rotateNoise = stableTerrainNoise(cellX, cellY);
-    const float mirrorNoise = stableTerrainNoise(cellX + 19.0f, cellY + 47.0f);
-    const float offsetNoiseX =
-        stableTerrainNoise(cellX + 101.0f, cellY + 13.0f) * 2.0f - 1.0f;
-    const float offsetNoiseY =
-        stableTerrainNoise(cellX + 73.0f, cellY + 151.0f) * 2.0f - 1.0f;
-
-    glm::vec2 transformedUv = baseUv;
-    const int rotationIndex = static_cast<int>(std::floor(rotateNoise * 4.0f)) % 4;
-    const glm::vec2 centered = transformedUv - glm::vec2(0.5f);
-    switch (rotationIndex) {
-    case 1:
-      transformedUv = glm::vec2(-centered.y, centered.x) + glm::vec2(0.5f);
-      break;
-    case 2:
-      transformedUv = glm::vec2(-centered.x, -centered.y) + glm::vec2(0.5f);
-      break;
-    case 3:
-      transformedUv = glm::vec2(centered.y, -centered.x) + glm::vec2(0.5f);
-      break;
-    default:
-      break;
-    }
-
-    if (mirrorNoise > 0.5f) {
-      transformedUv.x = 1.0f - transformedUv.x;
-    }
-    if (mirrorNoise < 0.25f) {
-      transformedUv.y = 1.0f - transformedUv.y;
-    }
-
-    const glm::vec2 offset =
-        glm::vec2(offsetNoiseX, offsetNoiseY) * (0.18f * variation);
-    transformedUv = glm::fract(transformedUv + offset);
-    return glm::mix(baseUv, transformedUv, variation);
+    return DefaultEngineTerrainRuntime::variedTerrainBrushUv(tileU, tileV,
+                                                             variation);
   }
 
   static float brushFalloff(float distance) {
-    const float t = glm::clamp(1.0f - distance, 0.0f, 1.0f);
-    return t * t * (3.0f - 2.0f * t);
+    return DefaultEngineTerrainRuntime::brushFalloff(distance);
   }
 
   static void applyTerrainPaintMaterial(ImportedMaterialData &material,
                                         const SceneAssetInstance &sceneAsset,
-                                        const TerrainPaintState &paintState) {
-    material.paintCanvasTexture = ImportedTextureSource{
-        .resolvedPath = {},
-        .rgba = paintState.canvasPixels,
-        .width = static_cast<int>(paintState.canvasWidth),
-        .height = static_cast<int>(paintState.canvasHeight),
-    };
-    material.paintCanvasUvScale = sceneAsset.terrainConfig.uvScale;
+                                        const DefaultEngineTerrainPaintState &paintState) {
+    DefaultEngineTerrainRuntime::applyTerrainPaintMaterial(material, sceneAsset,
+                                                           paintState);
   }
 
   static TerrainMaterialOverride
   terrainMaterialOverrideFromMaterial(const ImportedMaterialData &material) {
-    return TerrainMaterialOverride{
-        .name = material.name,
-        .baseColorFactor = material.baseColorFactor,
-        .emissiveFactor = material.emissiveFactor,
-        .metallicFactor = material.metallicFactor,
-        .roughnessFactor = material.roughnessFactor,
-        .occlusionStrength = material.occlusionStrength,
-    };
+    return DefaultEngineTerrainRuntime::terrainMaterialOverrideFromMaterial(
+        material);
   }
 
   static void applyTerrainMaterialOverride(
       ImportedMaterialData &material,
       const TerrainMaterialOverride &materialOverride) {
-    material.name = materialOverride.name;
-    material.baseColorFactor = materialOverride.baseColorFactor;
-    material.emissiveFactor = materialOverride.emissiveFactor;
-    material.metallicFactor = materialOverride.metallicFactor;
-    material.roughnessFactor = materialOverride.roughnessFactor;
-    material.occlusionStrength = materialOverride.occlusionStrength;
+    DefaultEngineTerrainRuntime::applyTerrainMaterialOverride(material,
+                                                              materialOverride);
   }
 
   static std::vector<TerrainMaterialOverride>
   terrainMaterialOverridesFromMaterials(
       const std::vector<ImportedMaterialData> &materials) {
-    std::vector<TerrainMaterialOverride> overrides;
-    overrides.reserve(materials.size());
-    for (const auto &material : materials) {
-      overrides.push_back(terrainMaterialOverrideFromMaterial(material));
-    }
-    return overrides;
+    return DefaultEngineTerrainRuntime::terrainMaterialOverridesFromMaterials(
+        materials);
   }
 
   void applyEngineConfigOverrides(DefaultDebugUISettings &settings) const {
-    if (engineConfig.skyboxVisible.has_value()) {
-      settings.skyboxVisible = *engineConfig.skyboxVisible;
-    }
+    DefaultEngineSceneAssetRuntime::applyEngineConfigOverrides(engineConfig,
+                                                               settings);
   }
 
   std::vector<SceneAssetInstance> resolvedSceneAssets() const {
-    if (!sceneDefinition.assets.empty()) {
-      return sceneDefinition.assets;
-    }
-    if (!sceneDefinition.modelPath.empty()) {
-      return {SceneAssetInstance::fromAsset(sceneDefinition.modelPath)};
-    }
-    return {};
+    return DefaultEngineSceneAssetRuntime::resolvedSceneAssets(sceneDefinition);
   }
 
   RenderableModel &currentEditorModel() {
@@ -489,35 +370,8 @@ private:
   }
 
   DefaultDebugUISettings buildBaseDebugUiSettings() const {
-    DefaultDebugUISettings settings;
-    const std::vector<SceneAssetInstance> initialSceneAssets =
-        resolvedSceneAssets();
-    if (initialSceneAssets.empty()) {
-      settings.sceneObjects.clear();
-    } else {
-      settings.sceneObjects.clear();
-      settings.sceneObjects.reserve(initialSceneAssets.size());
-      for (size_t index = 0; index < initialSceneAssets.size(); ++index) {
-        const auto &sceneAsset = initialSceneAssets[index];
-        settings.sceneObjects.push_back(SceneObject{
-            .name = AppSceneController::sceneAssetName(sceneAsset, index),
-            .transform = sceneAsset.transform,
-            .visible = sceneAsset.visible,
-        });
-      }
-    }
-    settings.sceneLights = sceneDefinition.sceneLights;
-    settings.iblBakeSettings.environmentHdrPath =
-        resolvedDefaultEnvironmentHdrPath(engineConfig);
-    if (engineConfig.configureSettings) {
-      engineConfig.configureSettings(settings);
-    }
-    if (sceneDefinition.configureSettings) {
-      sceneDefinition.configureSettings(settings);
-    }
-    applyEngineConfigOverrides(settings);
-    clampSceneObjectSelection(settings);
-    return settings;
+    return DefaultEngineSceneAssetRuntime::buildBaseDebugUiSettings(
+        engineConfig, sceneDefinition);
   }
 
   void initWindow() {
@@ -541,1153 +395,137 @@ private:
   }
 
   void syncSceneObjectsWithAssets() {
-    AppSceneController::syncSceneObjectsWithAssets(debugUiSettings,
-                                                   sceneAssets);
-    AppSceneController::applyObjectOverrides(debugUiSettings,
-                                             sceneDefinition.objectOverrides);
+    auto context = sceneAssetRuntimeContext();
+    DefaultEngineSceneAssetRuntime::syncSceneObjectsWithAssets(context);
   }
 
   void commitSceneAssetsFromSettings() {
-    const size_t sceneObjectCount =
-        std::min(sceneAssets.size(), debugUiSettings.sceneObjects.size());
-    for (size_t index = 0; index < sceneObjectCount; ++index) {
-      sceneAssets[index].transform = debugUiSettings.sceneObjects[index].transform;
-      sceneAssets[index].visible = debugUiSettings.sceneObjects[index].visible;
-    }
-    for (size_t index = 0; index < sceneObjectCount; ++index) {
-      if (sceneAssets[index].kind != SceneAssetKind::CharacterController) {
-        continue;
-      }
-      sceneAssets[index].characterControllerState.position =
-          sceneAssets[index].transform.position;
-      sceneAssets[index].characterControllerState.yawRadians =
-          glm::radians(sceneAssets[index].transform.rotationDegrees.y);
-      snapCharacterControllerToTerrain(index);
-    }
-    syncTerrainMaterialOverridesInto(sceneAssets);
-    sceneDefinition.assets = sceneAssets;
+    auto context = sceneAssetRuntimeContext();
+    DefaultEngineSceneAssetRuntime::commitSceneAssetsFromSettings(
+        context, [this](size_t index) {
+          return snapCharacterControllerToTerrain(index);
+        });
   }
 
   std::vector<SceneAssetInstance> persistedSceneAssets() const {
-    std::vector<SceneAssetInstance> persisted =
-        !sceneAssets.empty() ? sceneAssets : sceneDefinition.assets;
-    syncTerrainMaterialOverridesInto(persisted);
-    const size_t sceneObjectCount =
-        std::min(persisted.size(), debugUiSettings.sceneObjects.size());
-    for (size_t index = 0; index < sceneObjectCount; ++index) {
-      persisted[index].transform = debugUiSettings.sceneObjects[index].transform;
-      persisted[index].visible = debugUiSettings.sceneObjects[index].visible;
-      if (persisted[index].kind == SceneAssetKind::CharacterController) {
-        persisted[index].characterControllerState.position =
-            persisted[index].transform.position;
-        persisted[index].characterControllerState.yawRadians =
-            glm::radians(persisted[index].transform.rotationDegrees.y);
-      }
-    }
-    return persisted;
+    return DefaultEngineSceneAssetRuntime::persistedSceneAssets(
+        DefaultEngineSceneAssetRuntimeContext{
+            .engineConfig = engineConfig,
+            .sceneDefinition = const_cast<SceneDefinition &>(sceneDefinition),
+            .sceneAssets = const_cast<std::vector<SceneAssetInstance> &>(
+                sceneAssets),
+            .sceneAssetModels =
+                const_cast<std::vector<RenderableModel> &>(sceneAssetModels),
+            .terrainPaintStates =
+                const_cast<std::vector<DefaultEngineTerrainPaintState> &>(
+                    terrainPaintStates),
+            .debugUiSettings =
+                const_cast<DefaultDebugUISettings &>(debugUiSettings),
+            .backend = const_cast<VulkanBackend &>(backend),
+            .frameGeometryUniforms =
+                const_cast<FrameGeometryUniforms &>(frameGeometryUniforms),
+            .sampler = const_cast<Sampler &>(sampler),
+        });
   }
 
   void syncTerrainMaterialOverridesInto(
       std::vector<SceneAssetInstance> &assets) const {
-    const size_t assetCount = std::min(assets.size(), sceneAssetModels.size());
-    for (size_t index = 0; index < assetCount; ++index) {
-      if (assets[index].kind != SceneAssetKind::Terrain ||
-          sceneAssetModels[index].modelAsset() == nullptr) {
-        continue;
-      }
-      assets[index].terrainMaterialOverrides =
-          terrainMaterialOverridesFromMaterials(sceneAssetModels[index].materials());
-    }
+    DefaultEngineTerrainRuntime::syncTerrainMaterialOverridesInto(
+        assets, sceneAssetModels);
   }
 
   TerrainPaintState &ensureTerrainPaintState(size_t terrainIndex) {
-    if (terrainPaintStates.size() < sceneAssets.size()) {
-      terrainPaintStates.resize(sceneAssets.size());
-    }
-
-    TerrainPaintState &paintState = terrainPaintStates[terrainIndex];
-    SceneAssetInstance &sceneAsset = sceneAssets[terrainIndex];
-    if (sceneAsset.kind != SceneAssetKind::Terrain) {
-      return paintState;
-    }
-
-    sceneAsset.terrainPaintCanvasResolution =
-        std::clamp(sceneAsset.terrainPaintCanvasResolution, 128u, 2048u);
-    const uint32_t canvasResolution = sceneAsset.terrainPaintCanvasResolution;
-    const size_t expectedCanvasSize =
-        static_cast<size_t>(canvasResolution) *
-        static_cast<size_t>(canvasResolution) * 4u;
-
-    if (sceneAsset.terrainPaintCanvasPath.empty()) {
-      sceneAsset.terrainPaintCanvasPath =
-          defaultTerrainPaintCanvasPath(terrainIndex, sceneAsset).string();
-      paintState.canvasPixels.assign(expectedCanvasSize, 0);
-      paintState.canvasWidth = canvasResolution;
-      paintState.canvasHeight = canvasResolution;
-      paintState.strokeActive = false;
-      paintState.strokeBasePixels.clear();
-      paintState.strokePixels.clear();
-      paintState.materialDirty = true;
-      paintState.canvasDirty = true;
-    } else if (paintState.canvasWidth != canvasResolution ||
-               paintState.canvasHeight != canvasResolution ||
-               paintState.canvasPixels.size() != expectedCanvasSize) {
-      if (!loadTerrainPaintCanvasFile(sceneAsset.terrainPaintCanvasPath,
-                                      canvasResolution, canvasResolution,
-                                      paintState.canvasPixels)) {
-        paintState.canvasPixels.assign(expectedCanvasSize, 0);
-        paintState.canvasDirty = true;
-      }
-      paintState.canvasWidth = canvasResolution;
-      paintState.canvasHeight = canvasResolution;
-      paintState.strokeActive = false;
-      paintState.strokeBasePixels.clear();
-      paintState.strokePixels.clear();
-      paintState.materialDirty = true;
-    }
-
-    if (paintState.loadedBrushTexturePath != sceneAsset.terrainBrushTexturePath) {
-      paintState.brushPixels.clear();
-      paintState.brushWidth = 0;
-      paintState.brushHeight = 0;
-      paintState.loadedBrushTexturePath = sceneAsset.terrainBrushTexturePath;
-
-      if (!sceneAsset.terrainBrushTexturePath.empty()) {
-        int brushWidth = 0;
-        int brushHeight = 0;
-        int brushChannels = 0;
-        stbi_uc *pixels = stbi_load(sceneAsset.terrainBrushTexturePath.c_str(),
-                                    &brushWidth, &brushHeight, &brushChannels,
-                                    STBI_rgb_alpha);
-        if (pixels != nullptr && brushWidth > 0 && brushHeight > 0) {
-          const size_t brushSize =
-              static_cast<size_t>(brushWidth) * static_cast<size_t>(brushHeight) *
-              4u;
-          paintState.brushPixels.assign(pixels, pixels + brushSize);
-          paintState.brushWidth = brushWidth;
-          paintState.brushHeight = brushHeight;
-          stbi_image_free(pixels);
-        } else {
-          std::cerr << "Failed to load terrain brush texture: "
-                    << sceneAsset.terrainBrushTexturePath << std::endl;
-        }
-      }
-    }
-
-    if (paintState.loadedUvScale != sceneAsset.terrainConfig.uvScale) {
-      paintState.loadedUvScale = sceneAsset.terrainConfig.uvScale;
-      paintState.materialDirty = true;
-    }
-
-    return paintState;
+    auto context = terrainRuntimeContext();
+    return DefaultEngineTerrainRuntime::ensureTerrainPaintState(context,
+                                                                terrainIndex);
   }
 
   static void endTerrainPaintStroke(TerrainPaintState &paintState) {
-    if (!paintState.strokeActive) {
-      return;
-    }
-    paintState.strokeActive = false;
-    paintState.strokeBasePixels.clear();
-    paintState.strokePixels.clear();
+    DefaultEngineTerrainRuntime::endTerrainPaintStroke(paintState);
   }
 
   bool applyTerrainPaintStamp(size_t terrainIndex, const glm::vec2 &localPosition) {
-    if (terrainIndex >= sceneAssets.size()) {
-      return false;
-    }
-
-    SceneAssetInstance &sceneAsset = sceneAssets[terrainIndex];
-    TerrainPaintState &paintState = ensureTerrainPaintState(terrainIndex);
-    if (sceneAsset.kind != SceneAssetKind::Terrain || paintState.canvasPixels.empty() ||
-        paintState.brushPixels.empty()) {
-      return false;
-    }
-
-    if (!paintState.strokeActive) {
-      paintState.strokeActive = true;
-      paintState.strokeBasePixels = paintState.canvasPixels;
-      paintState.strokePixels.assign(paintState.canvasPixels.size(), 0);
-    }
-
-    const float sizeX = std::max(sceneAsset.terrainConfig.sizeX, 1e-6f);
-    const float sizeZ = std::max(sceneAsset.terrainConfig.sizeZ, 1e-6f);
-    const float radius = std::max(sceneAsset.terrainBrushRadius, 1e-4f);
-    const float radiusU = radius / sizeX;
-    const float radiusV = radius / sizeZ;
-    const float centerU =
-        glm::clamp(localPosition.x / sizeX + 0.5f, 0.0f, 1.0f);
-    const float centerV =
-        glm::clamp(localPosition.y / sizeZ + 0.5f, 0.0f, 1.0f);
-
-    const int minX = std::max(
-        0, static_cast<int>(std::floor((centerU - radiusU) *
-                                       static_cast<float>(paintState.canvasWidth))));
-    const int maxX = std::min(
-        static_cast<int>(paintState.canvasWidth) - 1,
-        static_cast<int>(std::ceil((centerU + radiusU) *
-                                   static_cast<float>(paintState.canvasWidth))));
-    const int minY = std::max(
-        0, static_cast<int>(std::floor((centerV - radiusV) *
-                                       static_cast<float>(paintState.canvasHeight))));
-    const int maxY = std::min(
-        static_cast<int>(paintState.canvasHeight) - 1,
-        static_cast<int>(std::ceil((centerV + radiusV) *
-                                   static_cast<float>(paintState.canvasHeight))));
-
-    bool changed = false;
-    for (int y = minY; y <= maxY; ++y) {
-      const float canvasV =
-          (static_cast<float>(y) + 0.5f) / static_cast<float>(paintState.canvasHeight);
-      const float normalizedV = (canvasV - centerV) / std::max(radiusV, 1e-6f);
-      for (int x = minX; x <= maxX; ++x) {
-        const float canvasU =
-            (static_cast<float>(x) + 0.5f) /
-            static_cast<float>(paintState.canvasWidth);
-        const float normalizedU =
-            (canvasU - centerU) / std::max(radiusU, 1e-6f);
-        const float distance =
-            std::sqrt(normalizedU * normalizedU + normalizedV * normalizedV);
-        if (distance > 1.0f) {
-          continue;
-        }
-
-        const float tileU =
-            canvasU * std::max(sceneAsset.terrainConfig.uvScale.x, 1e-4f);
-        const float tileV =
-            canvasV * std::max(sceneAsset.terrainConfig.uvScale.y, 1e-4f);
-        const glm::vec2 variedBrushUv = variedTerrainBrushUv(
-            tileU, tileV, sceneAsset.terrainBrushTextureVariation);
-        const glm::vec4 brushSample = sampleTerrainBrushTexture(
-            paintState, variedBrushUv.x, variedBrushUv.y);
-        const float sourceAlpha = glm::clamp(
-            brushSample.a * sceneAsset.terrainBrushOpacity * brushFalloff(distance),
-            0.0f, 1.0f);
-        if (sourceAlpha <= 1e-5f) {
-          continue;
-        }
-
-        const size_t pixelIndex =
-            (static_cast<size_t>(y) * static_cast<size_t>(paintState.canvasWidth) +
-             static_cast<size_t>(x)) *
-            4u;
-        const float existingStrokeAlpha =
-            static_cast<float>(paintState.strokePixels[pixelIndex + 3]) / 255.0f;
-        if (sourceAlpha <= existingStrokeAlpha + 1e-5f) {
-          continue;
-        }
-
-        const glm::vec3 brushColor(brushSample.r, brushSample.g, brushSample.b);
-        paintState.strokePixels[pixelIndex + 0] =
-            static_cast<uint8_t>(glm::clamp(brushColor.r, 0.0f, 1.0f) * 255.0f +
-                                 0.5f);
-        paintState.strokePixels[pixelIndex + 1] =
-            static_cast<uint8_t>(glm::clamp(brushColor.g, 0.0f, 1.0f) * 255.0f +
-                                 0.5f);
-        paintState.strokePixels[pixelIndex + 2] =
-            static_cast<uint8_t>(glm::clamp(brushColor.b, 0.0f, 1.0f) * 255.0f +
-                                 0.5f);
-        paintState.strokePixels[pixelIndex + 3] =
-            static_cast<uint8_t>(sourceAlpha * 255.0f + 0.5f);
-
-        const glm::vec4 destination(
-            static_cast<float>(paintState.strokeBasePixels[pixelIndex + 0]) / 255.0f,
-            static_cast<float>(paintState.strokeBasePixels[pixelIndex + 1]) / 255.0f,
-            static_cast<float>(paintState.strokeBasePixels[pixelIndex + 2]) / 255.0f,
-            static_cast<float>(paintState.strokeBasePixels[pixelIndex + 3]) / 255.0f);
-        const float outAlpha = sourceAlpha + destination.a * (1.0f - sourceAlpha);
-        glm::vec3 outColor(0.0f);
-        if (outAlpha > 1e-5f) {
-          const glm::vec3 destinationColor(destination.r, destination.g,
-                                           destination.b);
-          outColor =
-              (brushColor * sourceAlpha +
-               destinationColor * destination.a * (1.0f - sourceAlpha)) /
-              outAlpha;
-        }
-
-        const auto toByte = [](float value) {
-          return static_cast<uint8_t>(glm::clamp(value, 0.0f, 1.0f) * 255.0f +
-                                      0.5f);
-        };
-        const uint8_t nextR = toByte(outColor.r);
-        const uint8_t nextG = toByte(outColor.g);
-        const uint8_t nextB = toByte(outColor.b);
-        const uint8_t nextA = toByte(outAlpha);
-        if (paintState.canvasPixels[pixelIndex + 0] == nextR &&
-            paintState.canvasPixels[pixelIndex + 1] == nextG &&
-            paintState.canvasPixels[pixelIndex + 2] == nextB &&
-            paintState.canvasPixels[pixelIndex + 3] == nextA) {
-          continue;
-        }
-
-        paintState.canvasPixels[pixelIndex + 0] = nextR;
-        paintState.canvasPixels[pixelIndex + 1] = nextG;
-        paintState.canvasPixels[pixelIndex + 2] = nextB;
-        paintState.canvasPixels[pixelIndex + 3] = nextA;
-        changed = true;
-      }
-    }
-
-    if (changed) {
-      paintState.materialDirty = true;
-      paintState.canvasDirty = true;
-    }
-    return changed;
+    auto context = terrainRuntimeContext();
+    return DefaultEngineTerrainRuntime::applyTerrainPaintStamp(
+        context, terrainIndex, localPosition);
   }
 
   bool bucketPaintTerrainTexture(size_t terrainIndex) {
-    if (terrainIndex >= sceneAssets.size()) {
-      return false;
-    }
-
-    SceneAssetInstance &sceneAsset = sceneAssets[terrainIndex];
-    TerrainPaintState &paintState = ensureTerrainPaintState(terrainIndex);
-    if (sceneAsset.kind != SceneAssetKind::Terrain || paintState.canvasPixels.empty() ||
-        paintState.brushPixels.empty() || paintState.canvasWidth == 0 ||
-        paintState.canvasHeight == 0) {
-      return false;
-    }
-
-    endTerrainPaintStroke(paintState);
-
-    const auto toByte = [](float value) {
-      return static_cast<uint8_t>(glm::clamp(value, 0.0f, 1.0f) * 255.0f + 0.5f);
-    };
-
-    const float tiledUvScaleX =
-        std::max(sceneAsset.terrainConfig.uvScale.x, 1e-4f);
-    const float tiledUvScaleY =
-        std::max(sceneAsset.terrainConfig.uvScale.y, 1e-4f);
-    const float opacity = glm::clamp(sceneAsset.terrainBrushOpacity, 0.0f, 1.0f);
-
-    bool changed = false;
-    for (uint32_t y = 0; y < paintState.canvasHeight; ++y) {
-      const float canvasV =
-          (static_cast<float>(y) + 0.5f) / static_cast<float>(paintState.canvasHeight);
-      for (uint32_t x = 0; x < paintState.canvasWidth; ++x) {
-        const float canvasU =
-            (static_cast<float>(x) + 0.5f) / static_cast<float>(paintState.canvasWidth);
-        const glm::vec2 variedBrushUv = variedTerrainBrushUv(
-            canvasU * tiledUvScaleX, canvasV * tiledUvScaleY,
-            sceneAsset.terrainBrushTextureVariation);
-        const glm::vec4 brushSample = sampleTerrainBrushTexture(
-            paintState, variedBrushUv.x, variedBrushUv.y);
-        const size_t pixelIndex =
-            (static_cast<size_t>(y) * static_cast<size_t>(paintState.canvasWidth) +
-             static_cast<size_t>(x)) *
-            4u;
-        const uint8_t nextR = toByte(brushSample.r);
-        const uint8_t nextG = toByte(brushSample.g);
-        const uint8_t nextB = toByte(brushSample.b);
-        const uint8_t nextA = toByte(brushSample.a * opacity);
-        if (paintState.canvasPixels[pixelIndex + 0] == nextR &&
-            paintState.canvasPixels[pixelIndex + 1] == nextG &&
-            paintState.canvasPixels[pixelIndex + 2] == nextB &&
-            paintState.canvasPixels[pixelIndex + 3] == nextA) {
-          continue;
-        }
-
-        paintState.canvasPixels[pixelIndex + 0] = nextR;
-        paintState.canvasPixels[pixelIndex + 1] = nextG;
-        paintState.canvasPixels[pixelIndex + 2] = nextB;
-        paintState.canvasPixels[pixelIndex + 3] = nextA;
-        changed = true;
-      }
-    }
-
-    if (changed) {
-      paintState.materialDirty = true;
-      paintState.canvasDirty = true;
-    }
-    return changed;
+    auto context = terrainRuntimeContext();
+    return DefaultEngineTerrainRuntime::bucketPaintTerrainTexture(context,
+                                                                  terrainIndex);
   }
 
   bool eraseTerrainPaintCanvas(size_t terrainIndex, const glm::vec2 &localPosition,
                                float eraseStrength) {
-    if (terrainIndex >= sceneAssets.size()) {
-      return false;
-    }
-
-    SceneAssetInstance &sceneAsset = sceneAssets[terrainIndex];
-    TerrainPaintState &paintState = ensureTerrainPaintState(terrainIndex);
-    if (sceneAsset.kind != SceneAssetKind::Terrain || paintState.canvasPixels.empty() ||
-        eraseStrength <= 1e-6f) {
-      return false;
-    }
-
-    endTerrainPaintStroke(paintState);
-
-    const float sizeX = std::max(sceneAsset.terrainConfig.sizeX, 1e-6f);
-    const float sizeZ = std::max(sceneAsset.terrainConfig.sizeZ, 1e-6f);
-    const float radius = std::max(sceneAsset.terrainBrushRadius, 1e-4f);
-    const float radiusU = radius / sizeX;
-    const float radiusV = radius / sizeZ;
-    const float centerU =
-        glm::clamp(localPosition.x / sizeX + 0.5f, 0.0f, 1.0f);
-    const float centerV =
-        glm::clamp(localPosition.y / sizeZ + 0.5f, 0.0f, 1.0f);
-
-    const int minX = std::max(
-        0, static_cast<int>(std::floor((centerU - radiusU) *
-                                       static_cast<float>(paintState.canvasWidth))));
-    const int maxX = std::min(
-        static_cast<int>(paintState.canvasWidth) - 1,
-        static_cast<int>(std::ceil((centerU + radiusU) *
-                                   static_cast<float>(paintState.canvasWidth))));
-    const int minY = std::max(
-        0, static_cast<int>(std::floor((centerV - radiusV) *
-                                       static_cast<float>(paintState.canvasHeight))));
-    const int maxY = std::min(
-        static_cast<int>(paintState.canvasHeight) - 1,
-        static_cast<int>(std::ceil((centerV + radiusV) *
-                                   static_cast<float>(paintState.canvasHeight))));
-
-    bool changed = false;
-    for (int y = minY; y <= maxY; ++y) {
-      const float canvasV =
-          (static_cast<float>(y) + 0.5f) / static_cast<float>(paintState.canvasHeight);
-      const float normalizedV = (canvasV - centerV) / std::max(radiusV, 1e-6f);
-      for (int x = minX; x <= maxX; ++x) {
-        const float canvasU =
-            (static_cast<float>(x) + 0.5f) /
-            static_cast<float>(paintState.canvasWidth);
-        const float normalizedU =
-            (canvasU - centerU) / std::max(radiusU, 1e-6f);
-        const float distance =
-            std::sqrt(normalizedU * normalizedU + normalizedV * normalizedV);
-        if (distance > 1.0f) {
-          continue;
-        }
-
-        const float eraseAmount = glm::clamp(
-            eraseStrength * brushFalloff(distance), 0.0f, 1.0f);
-        if (eraseAmount <= 1e-6f) {
-          continue;
-        }
-
-        const size_t pixelIndex =
-            (static_cast<size_t>(y) * static_cast<size_t>(paintState.canvasWidth) +
-             static_cast<size_t>(x)) *
-            4u;
-        const float currentAlpha =
-            static_cast<float>(paintState.canvasPixels[pixelIndex + 3]) / 255.0f;
-        const float nextAlpha =
-            glm::clamp(currentAlpha - eraseAmount, 0.0f, 1.0f);
-        const uint8_t nextAlphaByte =
-            static_cast<uint8_t>(nextAlpha * 255.0f + 0.5f);
-        if (paintState.canvasPixels[pixelIndex + 3] == nextAlphaByte) {
-          continue;
-        }
-
-        paintState.canvasPixels[pixelIndex + 3] = nextAlphaByte;
-        changed = true;
-      }
-    }
-
-    if (changed) {
-      paintState.materialDirty = true;
-      paintState.canvasDirty = true;
-    }
-    return changed;
+    auto context = terrainRuntimeContext();
+    return DefaultEngineTerrainRuntime::eraseTerrainPaintCanvas(
+        context, terrainIndex, localPosition, eraseStrength);
   }
 
   void flushTerrainPaintMaterials(bool force = false) {
-    if (terrainPaintStates.empty()) {
-      return;
-    }
-
-    const auto now = std::chrono::steady_clock::now();
-    const bool leftMouseDown =
-        glfwGetMouseButton(window.handle(), GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
-    std::vector<size_t> dirtyTerrainIndices;
-    for (size_t terrainIndex = 0; terrainIndex < sceneAssets.size() &&
-                                 terrainIndex < terrainPaintStates.size();
-         ++terrainIndex) {
-      if (sceneAssets[terrainIndex].kind != SceneAssetKind::Terrain) {
-        continue;
-      }
-
-      TerrainPaintState &paintState = ensureTerrainPaintState(terrainIndex);
-      if (!paintState.materialDirty || sceneAssetModels.size() <= terrainIndex ||
-          sceneAssetModels[terrainIndex].modelAsset() == nullptr) {
-        continue;
-      }
-
-      const float secondsSinceUpload =
-          std::chrono::duration<float>(now - paintState.lastUploadTime).count();
-      if (!force && leftMouseDown && secondsSinceUpload < 0.08f) {
-        continue;
-      }
-
-      dirtyTerrainIndices.push_back(terrainIndex);
-    }
-
-    if (dirtyTerrainIndices.empty()) {
-      return;
-    }
-
-    backend.waitIdle();
-    bool renderItemsChanged = false;
-    for (const size_t terrainIndex : dirtyTerrainIndices) {
-      TerrainPaintState &paintState = terrainPaintStates[terrainIndex];
-      auto &materials = sceneAssetModels[terrainIndex].mutableMaterials();
-      if (materials.empty()) {
-        continue;
-      }
-
-      applyTerrainPaintMaterial(materials.front(), sceneAssets[terrainIndex],
-                                paintState);
-      sceneAssetModels[terrainIndex].syncMaterialResources(commandContext(),
-                                                           deviceContext());
-      paintState.materialDirty = false;
-      paintState.lastUploadTime = now;
-      renderItemsChanged = true;
-    }
-
-    if (renderItemsChanged) {
-      rebuildSceneRenderItems();
-    }
+    auto context = terrainRuntimeContext();
+    DefaultEngineTerrainRuntime::flushTerrainPaintMaterials(
+        context, force, [this]() { rebuildSceneRenderItems(); });
   }
 
   void saveTerrainPaintCanvasesToDisk() {
-    for (size_t terrainIndex = 0; terrainIndex < sceneAssets.size() &&
-                                 terrainIndex < terrainPaintStates.size();
-         ++terrainIndex) {
-      if (sceneAssets[terrainIndex].kind != SceneAssetKind::Terrain) {
-        continue;
-      }
-
-      TerrainPaintState &paintState = ensureTerrainPaintState(terrainIndex);
-      if (!paintState.canvasDirty ||
-          sceneAssets[terrainIndex].terrainPaintCanvasPath.empty()) {
-        continue;
-      }
-
-      if (!writeTerrainPaintCanvasFile(
-              sceneAssets[terrainIndex].terrainPaintCanvasPath,
-              paintState.canvasPixels)) {
-        std::cerr << "Failed to save terrain paint canvas to "
-                  << sceneAssets[terrainIndex].terrainPaintCanvasPath << std::endl;
-        continue;
-      }
-      paintState.canvasDirty = false;
-    }
-  }
-
-  static bool sameTerrainConfig(const TerrainConfig &lhs,
-                                const TerrainConfig &rhs) {
-    return lhs.sizeX == rhs.sizeX && lhs.sizeZ == rhs.sizeZ &&
-           lhs.xSegments == rhs.xSegments && lhs.zSegments == rhs.zSegments &&
-           lhs.uvScale == rhs.uvScale && lhs.heightScale == rhs.heightScale &&
-           lhs.noiseFrequency == rhs.noiseFrequency &&
-           lhs.noiseOctaves == rhs.noiseOctaves &&
-           lhs.noisePersistence == rhs.noisePersistence &&
-           lhs.noiseLacunarity == rhs.noiseLacunarity &&
-           lhs.noiseSeed == rhs.noiseSeed &&
-           lhs.heightOffsets == rhs.heightOffsets;
-  }
-
-  static glm::mat4 basisTransform(const glm::vec3 &position,
-                                  const glm::vec3 &normal,
-                                  const glm::vec3 &scale) {
-    const glm::vec3 up = glm::normalize(
-        glm::length(normal) > 1e-6f ? normal : glm::vec3(0.0f, 1.0f, 0.0f));
-    const glm::vec3 fallbackTangent =
-        std::abs(glm::dot(up, glm::vec3(0.0f, 0.0f, 1.0f))) > 0.98f
-            ? glm::vec3(1.0f, 0.0f, 0.0f)
-            : glm::vec3(0.0f, 0.0f, 1.0f);
-    const glm::vec3 tangent = glm::normalize(glm::cross(fallbackTangent, up));
-    const glm::vec3 bitangent = glm::normalize(glm::cross(up, tangent));
-
-    glm::mat4 transform(1.0f);
-    transform[0] = glm::vec4(tangent * scale.x, 0.0f);
-    transform[1] = glm::vec4(up * scale.y, 0.0f);
-    transform[2] = glm::vec4(bitangent * scale.z, 0.0f);
-    transform[3] = glm::vec4(position, 1.0f);
-    return transform;
-  }
-
-  static glm::vec3 terrainLocalNormal(const TerrainConfig &config, float x,
-                                      float z) {
-    const float epsilon =
-        std::max(std::min(config.sizeX, config.sizeZ) / 512.0f, 0.01f);
-    const float heightLeft =
-        TerrainGenerator::sampleHeight(config, x - epsilon, z);
-    const float heightRight =
-        TerrainGenerator::sampleHeight(config, x + epsilon, z);
-    const float heightBack =
-        TerrainGenerator::sampleHeight(config, x, z - epsilon);
-    const float heightFront =
-        TerrainGenerator::sampleHeight(config, x, z + epsilon);
-    return glm::normalize(glm::vec3(heightLeft - heightRight, epsilon * 2.0f,
-                                    heightBack - heightFront));
-  }
-
-  std::optional<TerrainSurfaceSample>
-  sampleTerrainSurfaceAtWorldPosition(const glm::vec3 &worldPosition) const {
-    const size_t terrainCount =
-        std::min(sceneAssets.size(), debugUiSettings.sceneObjects.size());
-    std::optional<TerrainSurfaceSample> bestSample;
-    float bestDistance = std::numeric_limits<float>::max();
-
-    for (size_t index = 0; index < terrainCount; ++index) {
-      if (sceneAssets[index].kind != SceneAssetKind::Terrain ||
-          !debugUiSettings.sceneObjects[index].visible) {
-        continue;
-      }
-
-      const glm::mat4 terrainModel = AppSceneController::sceneTransformMatrix(
-          debugUiSettings.sceneObjects[index].transform);
-      const glm::mat4 inverseTerrainModel = glm::inverse(terrainModel);
-      const glm::vec3 localPosition =
-          glm::vec3(inverseTerrainModel * glm::vec4(worldPosition, 1.0f));
-      const TerrainConfig &terrainConfig = sceneAssets[index].terrainConfig;
-      const float halfSizeX = terrainConfig.sizeX * 0.5f;
-      const float halfSizeZ = terrainConfig.sizeZ * 0.5f;
-      if (localPosition.x < -halfSizeX || localPosition.x > halfSizeX ||
-          localPosition.z < -halfSizeZ || localPosition.z > halfSizeZ) {
-        continue;
-      }
-
-      const float localHeight = TerrainGenerator::sampleHeight(
-          terrainConfig, localPosition.x, localPosition.z);
-      const glm::vec3 localSurface(localPosition.x, localHeight, localPosition.z);
-      const glm::vec3 worldSurface =
-          glm::vec3(terrainModel * glm::vec4(localSurface, 1.0f));
-      const glm::vec3 localNormal =
-          terrainLocalNormal(terrainConfig, localSurface.x, localSurface.z);
-      const glm::vec3 worldNormal = glm::normalize(
-          glm::transpose(glm::inverse(glm::mat3(terrainModel))) * localNormal);
-      const float distance = std::abs(worldPosition.y - worldSurface.y);
-      if (bestSample.has_value() && distance >= bestDistance) {
-        continue;
-      }
-
-      bestSample = TerrainSurfaceSample{
-          .terrainIndex = index,
-          .worldPosition = worldSurface,
-          .worldNormal = worldNormal,
-      };
-      bestDistance = distance;
-    }
-
-    return bestSample;
+    auto context = terrainRuntimeContext();
+    DefaultEngineTerrainRuntime::saveTerrainPaintCanvasesToDisk(context);
   }
 
   bool snapCharacterControllerToTerrain(size_t characterIndex) {
-    if (characterIndex >= sceneAssets.size() ||
-        characterIndex >= debugUiSettings.sceneObjects.size() ||
-        sceneAssets[characterIndex].kind != SceneAssetKind::CharacterController) {
-      return false;
-    }
-
-    SceneAssetInstance &characterAsset = sceneAssets[characterIndex];
-    SceneObject &characterObject = debugUiSettings.sceneObjects[characterIndex];
-    const auto surfaceSample = sampleTerrainSurfaceAtWorldPosition(
-        characterAsset.characterControllerState.position);
-    if (!surfaceSample.has_value()) {
-      return false;
-    }
-
-    const float supportOffset = characterAsset.characterControllerConfig.radius +
-                                characterAsset.characterControllerConfig.halfHeight;
-    const glm::vec3 snappedPosition =
-        surfaceSample->worldPosition + glm::vec3(0.0f, supportOffset, 0.0f);
-    if (glm::all(glm::epsilonEqual(characterAsset.characterControllerState.position,
-                                   snappedPosition, 1e-4f))) {
-      characterObject.transform.position = snappedPosition;
-      characterAsset.transform.position = snappedPosition;
-      return false;
-    }
-
-    characterAsset.characterControllerState.position = snappedPosition;
-    characterAsset.transform.position = snappedPosition;
-    characterObject.transform.position = snappedPosition;
-    sceneDefinition.assets = sceneAssets;
-    return true;
+    auto context = characterControllerRuntimeContext();
+    return DefaultEngineCharacterControllerRuntime::snapCharacterControllerToTerrain(
+        context, characterIndex);
   }
 
   void updateCharacterControllerTerrainAnchors() {
-    bool anyChanged = false;
-    const size_t characterCount =
-        std::min(sceneAssets.size(), debugUiSettings.sceneObjects.size());
-    for (size_t index = 0; index < characterCount; ++index) {
-      anyChanged |= snapCharacterControllerToTerrain(index);
-    }
-    if (anyChanged) {
-      sceneDefinition.assets = sceneAssets;
-    }
-  }
-
-  static std::optional<glm::vec2>
-  intersectRayAabb(const glm::vec3 &origin, const glm::vec3 &direction,
-                   const glm::vec3 &boundsMin, const glm::vec3 &boundsMax) {
-    float tMin = 0.0f;
-    float tMax = std::numeric_limits<float>::max();
-
-    for (int axis = 0; axis < 3; ++axis) {
-      if (std::abs(direction[axis]) <= 1e-6f) {
-        if (origin[axis] < boundsMin[axis] || origin[axis] > boundsMax[axis]) {
-          return std::nullopt;
-        }
-        continue;
-      }
-
-      const float invDirection = 1.0f / direction[axis];
-      float t0 = (boundsMin[axis] - origin[axis]) * invDirection;
-      float t1 = (boundsMax[axis] - origin[axis]) * invDirection;
-      if (t0 > t1) {
-        std::swap(t0, t1);
-      }
-
-      tMin = std::max(tMin, t0);
-      tMax = std::min(tMax, t1);
-      if (tMin > tMax) {
-        return std::nullopt;
-      }
-    }
-
-    return glm::vec2(tMin, tMax);
+    auto context = characterControllerRuntimeContext();
+    DefaultEngineCharacterControllerRuntime::updateTerrainAnchors(context);
   }
 
   std::optional<TerrainEditHit>
   raycastTerrainFromCursor(const glm::mat4 &view,
                            const glm::mat4 &proj) {
-    ImGuiIO &io = ImGui::GetIO();
-    if (io.WantCaptureMouse && !debugUiSettings.cameraLookActive) {
-      return std::nullopt;
-    }
-
-    int activeTerrainIndex = -1;
-    const int selectedIndex = debugUiSettings.selectedObjectIndex;
-    if (selectedIndex >= 0 &&
-        static_cast<size_t>(selectedIndex) < sceneAssets.size() &&
-        static_cast<size_t>(selectedIndex) < debugUiSettings.sceneObjects.size() &&
-        sceneAssets[static_cast<size_t>(selectedIndex)].kind ==
-            SceneAssetKind::Terrain &&
-        sceneAssets[static_cast<size_t>(selectedIndex)].terrainEditMode &&
-        debugUiSettings.sceneObjects[static_cast<size_t>(selectedIndex)].visible) {
-      activeTerrainIndex = selectedIndex;
-    } else {
-      for (size_t index = 0;
-           index < sceneAssets.size() &&
-           index < debugUiSettings.sceneObjects.size(); ++index) {
-        if (sceneAssets[index].kind != SceneAssetKind::Terrain ||
-            !sceneAssets[index].terrainEditMode ||
-            !debugUiSettings.sceneObjects[index].visible) {
-          continue;
-        }
-        activeTerrainIndex = static_cast<int>(index);
-        break;
-      }
-    }
-
-    if (activeTerrainIndex < 0) {
-      return std::nullopt;
-    }
-
-    double cursorX = 0.0;
-    double cursorY = 0.0;
-    glfwGetCursorPos(window.handle(), &cursorX, &cursorY);
-
-    const WindowSize windowSize = window.windowSize();
-    if (windowSize.width == 0 || windowSize.height == 0) {
-      return std::nullopt;
-    }
-
-    const float ndcX =
-        static_cast<float>((cursorX / static_cast<double>(windowSize.width)) *
-                               2.0 -
-                           1.0);
-    const float ndcY =
-        static_cast<float>((cursorY / static_cast<double>(windowSize.height)) *
-                               2.0 -
-                           1.0);
-    const glm::mat4 inverseViewProj = glm::inverse(proj * view);
-    const glm::vec4 nearWorld =
-        inverseViewProj * glm::vec4(ndcX, ndcY, 0.0f, 1.0f);
-    const glm::vec4 farWorld =
-        inverseViewProj * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
-    if (std::abs(nearWorld.w) <= 1e-6f || std::abs(farWorld.w) <= 1e-6f) {
-      return std::nullopt;
-    }
-
-    const glm::vec3 rayOrigin = debugUiSettings.cameraPosition;
-    const glm::vec3 rayNear = glm::vec3(nearWorld) / nearWorld.w;
-    const glm::vec3 rayFar = glm::vec3(farWorld) / farWorld.w;
-    const glm::vec3 rayDirection = glm::normalize(rayFar - rayNear);
-
-    const size_t terrainIndex = static_cast<size_t>(activeTerrainIndex);
-    const SceneAssetInstance &terrainAsset = sceneAssets[terrainIndex];
-    const glm::mat4 terrainModel =
-        AppSceneController::sceneTransformMatrix(
-            debugUiSettings.sceneObjects[terrainIndex].transform);
-    const glm::mat4 inverseTerrainModel = glm::inverse(terrainModel);
-    const glm::vec3 localOrigin =
-        glm::vec3(inverseTerrainModel * glm::vec4(rayOrigin, 1.0f));
-    const glm::vec3 localDirection = glm::normalize(glm::vec3(
-        inverseTerrainModel * glm::vec4(rayDirection, 0.0f)));
-
-    const float heightBound = std::max(
-                                  std::max(std::abs(terrainAsset.terrainConfig.heightScale),
-                                           TerrainGenerator::maxHeightOffsetMagnitude(
-                                               terrainAsset.terrainConfig)),
-                                  0.5f) +
-                              1.0f;
-    const auto hitRange = intersectRayAabb(
-        localOrigin, localDirection,
-        {-terrainAsset.terrainConfig.sizeX * 0.5f, -heightBound,
-         -terrainAsset.terrainConfig.sizeZ * 0.5f},
-        {terrainAsset.terrainConfig.sizeX * 0.5f, heightBound,
-         terrainAsset.terrainConfig.sizeZ * 0.5f});
-    if (!hitRange.has_value()) {
-      return std::nullopt;
-    }
-
-    const float startT = std::max(hitRange->x, 0.0f);
-    const float endT = hitRange->y;
-    const uint32_t stepCount = std::max(
-        terrainAsset.terrainConfig.xSegments + terrainAsset.terrainConfig.zSegments,
-        64u);
-    float previousT = startT;
-    glm::vec3 previousPoint = localOrigin + localDirection * previousT;
-    float previousDelta =
-        previousPoint.y - TerrainGenerator::sampleHeight(
-                              terrainAsset.terrainConfig, previousPoint.x,
-                              previousPoint.z);
-
-    for (uint32_t step = 1; step <= stepCount; ++step) {
-      const float alpha =
-          static_cast<float>(step) / static_cast<float>(stepCount);
-      const float currentT = glm::mix(startT, endT, alpha);
-      const glm::vec3 currentPoint = localOrigin + localDirection * currentT;
-      const float currentDelta =
-          currentPoint.y - TerrainGenerator::sampleHeight(
-                               terrainAsset.terrainConfig, currentPoint.x,
-                               currentPoint.z);
-      const bool crossedSurface =
-          (previousDelta >= 0.0f && currentDelta <= 0.0f) ||
-          std::abs(currentDelta) <= 1e-4f;
-      if (!crossedSurface) {
-        previousT = currentT;
-        previousPoint = currentPoint;
-        previousDelta = currentDelta;
-        continue;
-      }
-
-      float lowT = previousT;
-      float highT = currentT;
-      for (int iteration = 0; iteration < 10; ++iteration) {
-        const float midT = 0.5f * (lowT + highT);
-        const glm::vec3 midPoint = localOrigin + localDirection * midT;
-        const float midDelta =
-            midPoint.y - TerrainGenerator::sampleHeight(
-                             terrainAsset.terrainConfig, midPoint.x, midPoint.z);
-        if (midDelta > 0.0f) {
-          lowT = midT;
-        } else {
-          highT = midT;
-        }
-      }
-
-      const float hitT = 0.5f * (lowT + highT);
-      const glm::vec3 localHit = localOrigin + localDirection * hitT;
-      const float hitHeight = TerrainGenerator::sampleHeight(
-          terrainAsset.terrainConfig, localHit.x, localHit.z);
-      const glm::vec3 localPoint(localHit.x, hitHeight, localHit.z);
-      const glm::vec3 localNormal =
-          terrainLocalNormal(terrainAsset.terrainConfig, localPoint.x,
-                             localPoint.z);
-      const glm::vec3 worldPoint =
-          glm::vec3(terrainModel * glm::vec4(localPoint, 1.0f));
-      const glm::vec3 worldNormal = glm::normalize(
-          glm::transpose(glm::inverse(glm::mat3(terrainModel))) * localNormal);
-      return TerrainEditHit{
-          .terrainIndex = terrainIndex,
-          .localPosition = localPoint,
-          .worldPosition = worldPoint,
-          .worldNormal = worldNormal,
-      };
-    }
-
-    return std::nullopt;
+    auto context = terrainRuntimeContext();
+    return DefaultEngineTerrainRuntime::raycastTerrainFromCursor(context, view,
+                                                                 proj);
   }
 
   void updateTerrainWireframeOverlay() {
-    if (debugOverlayPass == nullptr) {
-      return;
-    }
-
-    const size_t terrainCount =
-        std::min(sceneAssets.size(), debugUiSettings.sceneObjects.size());
-    int wireframeTerrainIndex = -1;
-    for (size_t index = 0; index < terrainCount; ++index) {
-      if (sceneAssets[index].kind != SceneAssetKind::Terrain ||
-          !sceneAssets[index].terrainWireframeVisible ||
-          !debugUiSettings.sceneObjects[index].visible) {
-        continue;
-      }
-      wireframeTerrainIndex = static_cast<int>(index);
-      break;
-    }
-
-    if (wireframeTerrainIndex < 0) {
-      activeTerrainWireframeIndex = -1;
-      activeTerrainWireframeConfig.reset();
-      debugOverlayPass->setCustomVisible(false);
-      debugOverlayPass->setCustomSegments({});
-      debugOverlayPass->setCustomMarkers({});
-      return;
-    }
-
-    const TerrainConfig &terrainConfig =
-        sceneAssets[static_cast<size_t>(wireframeTerrainIndex)].terrainConfig;
-    if (activeTerrainWireframeIndex != wireframeTerrainIndex ||
-        !activeTerrainWireframeConfig.has_value() ||
-        !sameTerrainConfig(*activeTerrainWireframeConfig, terrainConfig)) {
-      terrainWireframeMesh = buildTerrainWireframeMesh(terrainConfig);
-      terrainWireframeMesh.createVertexBuffer(commandContext(), deviceContext());
-      terrainWireframeMesh.createIndexBuffer(commandContext(), deviceContext());
-      activeTerrainWireframeIndex = wireframeTerrainIndex;
-      activeTerrainWireframeConfig = terrainConfig;
-    }
-
-    debugOverlayPass->setCustomMarkerMesh(terrainWireframeMesh);
-    debugOverlayPass->setCustomSegments({});
-    debugOverlayPass->setCustomMarkers({DebugOverlayInstance{
-        .model = AppSceneController::sceneTransformMatrix(
-            debugUiSettings
-                .sceneObjects[static_cast<size_t>(wireframeTerrainIndex)]
-                .transform),
-        .color = {0.08f, 0.08f, 0.08f, 1.0f},
-    }});
-    debugOverlayPass->setCustomVisible(true);
+    auto context = terrainRuntimeContext();
+    DefaultEngineTerrainRuntime::updateTerrainWireframeOverlay(context);
   }
 
   void loadSceneAssetModel(size_t index) {
-    if (index >= sceneAssets.size() || index >= sceneAssetModels.size()) {
-      return;
-    }
-
-    SceneAssetInstance &sceneAsset = sceneAssets[index];
-    if (sceneAsset.kind == SceneAssetKind::Terrain) {
-      TerrainPaintState &paintState = ensureTerrainPaintState(index);
-      std::vector<ImportedMaterialData> existingMaterials;
-      if (sceneAssetModels[index].modelAsset() != nullptr) {
-        existingMaterials = sceneAssetModels[index].materials();
-      }
-      sceneAssetModels[index].loadTerrain(
-          sceneAsset.terrainConfig,
-          AppSceneController::sceneAssetName(sceneAsset, index),
-          commandContext(), deviceContext(), sceneDescriptorSetLayout(),
-          sceneSecondaryDescriptorSetLayout(), frameGeometryUniforms, sampler,
-          DEFAULT_ENGINE_MAX_FRAMES_IN_FLIGHT,
-          [&sceneAsset, &paintState, existingMaterials = std::move(existingMaterials)](
-              std::vector<ImportedMaterialData> &materials) {
-            if (materials.empty()) {
-              return;
-            }
-            if (!existingMaterials.empty()) {
-              const size_t materialCount =
-                  std::min(existingMaterials.size(), materials.size());
-              for (size_t materialIndex = 0; materialIndex < materialCount;
-                   ++materialIndex) {
-                materials[materialIndex] = existingMaterials[materialIndex];
-              }
-            } else if (!sceneAsset.terrainMaterialOverrides.empty()) {
-              const size_t materialCount = std::min(
-                  sceneAsset.terrainMaterialOverrides.size(), materials.size());
-              for (size_t materialIndex = 0; materialIndex < materialCount;
-                   ++materialIndex) {
-                applyTerrainMaterialOverride(
-                    materials[materialIndex],
-                    sceneAsset.terrainMaterialOverrides[materialIndex]);
-              }
-            }
-            applyTerrainPaintMaterial(materials.front(), sceneAsset, paintState);
-          });
-      paintState.materialDirty = false;
-      paintState.lastUploadTime = std::chrono::steady_clock::now();
-      return;
-    }
-
-    if (sceneAsset.assetPath.empty()) {
-      return;
-    }
-    sceneAssetModels[index].loadFromFile(
-        sceneAsset.assetPath, commandContext(), deviceContext(),
-        sceneDescriptorSetLayout(), sceneSecondaryDescriptorSetLayout(),
-        frameGeometryUniforms, sampler, DEFAULT_ENGINE_MAX_FRAMES_IN_FLIGHT);
-    if (engineConfig.onSceneAssetLoaded != nullptr &&
-        sceneAssetModels[index].modelAsset() != nullptr) {
-      engineConfig.onSceneAssetLoaded(sceneAsset,
-                                      *sceneAssetModels[index].modelAsset());
-    }
+    auto context = sceneAssetRuntimeContext();
+    DefaultEngineSceneAssetRuntime::loadSceneAssetModel(
+        context, index, sceneDescriptorSetLayout(),
+        sceneSecondaryDescriptorSetLayout());
   }
 
   void reloadTerrainAsset(size_t terrainIndex) {
-    if (terrainIndex >= sceneAssets.size() || terrainIndex >= sceneAssetModels.size()) {
-      return;
-    }
-
-    backend.waitIdle();
-    loadSceneAssetModel(terrainIndex);
-    sceneDefinition.assets = sceneAssets;
-    syncSceneObjectsWithAssets();
-    rebuildSceneRenderItems();
+    auto context = sceneAssetRuntimeContext();
+    DefaultEngineSceneAssetRuntime::reloadTerrainAsset(
+        context, terrainIndex, sceneDescriptorSetLayout(),
+        sceneSecondaryDescriptorSetLayout(),
+        [this]() { rebuildSceneRenderItems(); });
   }
 
   void updateTerrainSculpting(const std::optional<TerrainEditHit> &hit,
                               float deltaSeconds) {
-    ImGuiIO &io = ImGui::GetIO();
-    const bool leftMouseDown =
-        glfwGetMouseButton(window.handle(), GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
-    if (io.WantCaptureMouse) {
-      activeTerrainFlattenStroke.reset();
-      for (auto &paintState : terrainPaintStates) {
-        endTerrainPaintStroke(paintState);
-      }
-      return;
-    }
-
-    if (!leftMouseDown) {
-      activeTerrainFlattenStroke.reset();
-      for (auto &paintState : terrainPaintStates) {
-        endTerrainPaintStroke(paintState);
-      }
-      return;
-    }
-
-    if (!hit.has_value()) {
-      for (auto &paintState : terrainPaintStates) {
-        endTerrainPaintStroke(paintState);
-      }
-      return;
-    }
-
-    SceneAssetInstance &terrainAsset = sceneAssets[hit->terrainIndex];
-    const float sculptSpeedPerSecond = 2.4f;
-    const float colorBlendPerSecond = 5.0f;
-    const float brushStep =
-        sculptSpeedPerSecond * std::max(deltaSeconds, 1.0f / 240.0f);
-    bool changed = false;
-    if (terrainAsset.terrainBrushTexturePaintMode) {
-      activeTerrainFlattenStroke.reset();
-      changed = applyTerrainPaintStamp(
-          hit->terrainIndex, {hit->localPosition.x, hit->localPosition.z});
-    } else if (terrainAsset.terrainBrushColorPaintMode) {
-      activeTerrainFlattenStroke.reset();
-      endTerrainPaintStroke(ensureTerrainPaintState(hit->terrainIndex));
-      const float colorBlend =
-          colorBlendPerSecond * std::max(deltaSeconds, 1.0f / 240.0f);
-      changed = TerrainGenerator::applyColorBrush(
-          terrainAsset.terrainConfig,
-          {hit->localPosition.x, hit->localPosition.z},
-          terrainAsset.terrainBrushRadius, terrainAsset.terrainBrushColor,
-          colorBlend);
-      changed |= eraseTerrainPaintCanvas(
-          hit->terrainIndex, {hit->localPosition.x, hit->localPosition.z},
-          colorBlend);
-    } else if (terrainAsset.terrainBrushFlattenMode) {
-      endTerrainPaintStroke(ensureTerrainPaintState(hit->terrainIndex));
-      if (!activeTerrainFlattenStroke.has_value() ||
-          activeTerrainFlattenStroke->terrainIndex != hit->terrainIndex) {
-        activeTerrainFlattenStroke = TerrainFlattenStroke{
-            .terrainIndex = hit->terrainIndex,
-            .targetHeight = hit->localPosition.y,
-        };
-      }
-      changed = TerrainGenerator::applyFlattenBrush(
-          terrainAsset.terrainConfig,
-          {hit->localPosition.x, hit->localPosition.z},
-          terrainAsset.terrainBrushRadius,
-          activeTerrainFlattenStroke->targetHeight, brushStep);
-    } else {
-      activeTerrainFlattenStroke.reset();
-      endTerrainPaintStroke(ensureTerrainPaintState(hit->terrainIndex));
-      const float heightStep =
-          (terrainAsset.terrainBrushLowerMode ? -1.0f : 1.0f) * brushStep;
-      changed = TerrainGenerator::applyBrush(
-          terrainAsset.terrainConfig,
-          {hit->localPosition.x, hit->localPosition.z},
-          terrainAsset.terrainBrushRadius, heightStep);
-    }
-
-    if (!changed) {
-      return;
-    }
-
-    if (!terrainAsset.terrainBrushTexturePaintMode) {
-      reloadTerrainAsset(hit->terrainIndex);
-    }
+    auto context = terrainRuntimeContext();
+    DefaultEngineTerrainRuntime::updateTerrainSculpting(
+        context, hit, deltaSeconds,
+        [this](size_t terrainIndex) { reloadTerrainAsset(terrainIndex); });
   }
 
   void updateTerrainEditOverlay(const glm::mat4 &view, const glm::mat4 &proj,
                                 float deltaSeconds) {
-    if (debugOverlayPass == nullptr) {
-      return;
-    }
-
-    const auto hit = raycastTerrainFromCursor(view, proj);
-    if (!hit.has_value()) {
-      debugOverlayPass->setToolVisible(false);
-      debugOverlayPass->setToolMarkers({});
-      return;
-    }
-
-    SceneAssetInstance &terrainAsset = sceneAssets[hit->terrainIndex];
-    ImGuiIO &io = ImGui::GetIO();
-    bool radiusChanged = false;
-    bool brushModeChanged = false;
-    if (!io.WantCaptureKeyboard) {
-      const float radiusStep = std::max(deltaSeconds * 4.0f, 0.02f);
-      if (glfwGetKey(window.handle(), GLFW_KEY_UP) == GLFW_PRESS) {
-        terrainAsset.terrainBrushRadius = std::min(
-            terrainAsset.terrainBrushRadius + radiusStep, 128.0f);
-        radiusChanged = true;
-      }
-      if (glfwGetKey(window.handle(), GLFW_KEY_DOWN) == GLFW_PRESS) {
-        terrainAsset.terrainBrushRadius = std::max(
-            terrainAsset.terrainBrushRadius - radiusStep, 0.05f);
-        radiusChanged = true;
-      }
-      if (glfwGetKey(window.handle(), GLFW_KEY_LEFT) == GLFW_PRESS &&
-          !terrainAsset.terrainBrushLowerMode) {
-        terrainAsset.terrainBrushLowerMode = true;
-        brushModeChanged = true;
-      }
-      if (glfwGetKey(window.handle(), GLFW_KEY_RIGHT) == GLFW_PRESS &&
-          terrainAsset.terrainBrushLowerMode) {
-        terrainAsset.terrainBrushLowerMode = false;
-        brushModeChanged = true;
-      }
-    }
-
-    if (radiusChanged || brushModeChanged) {
-      sceneDefinition.assets = sceneAssets;
-    }
-
-    const float lineHeight =
-        std::max(terrainAsset.terrainBrushRadius * 0.75f, 0.6f);
-    const glm::vec4 brushColor =
-        terrainAsset.terrainBrushTexturePaintMode
-            ? glm::vec4(1.0f, 1.0f, 1.0f, 0.92f)
-            : (terrainAsset.terrainBrushColorPaintMode
-                   ? terrainAsset.terrainBrushColor
-            : (terrainAsset.terrainBrushFlattenMode
-            ? glm::vec4(0.22f, 0.72f, 0.96f, 1.0f)
-            : (terrainAsset.terrainBrushLowerMode
-                   ? glm::vec4(0.92f, 0.28f, 0.22f, 1.0f)
-                   : glm::vec4(0.95f, 0.85f, 0.2f, 1.0f))));
-    debugOverlayPass->setToolMarkerMesh(terrainBrushIndicatorMesh);
-    debugOverlayPass->setToolMarkers({DebugOverlayInstance{
-        .model = basisTransform(
-            hit->worldPosition + hit->worldNormal * 0.01f, hit->worldNormal,
-            {terrainAsset.terrainBrushRadius, lineHeight,
-             terrainAsset.terrainBrushRadius}),
-        .color = brushColor,
-    }});
-    debugOverlayPass->setToolVisible(true);
+    auto context = terrainRuntimeContext();
+    DefaultEngineTerrainRuntime::updateTerrainEditOverlay(context, view, proj,
+                                                          deltaSeconds);
   }
 
   void rebuildSceneRenderItems() {
@@ -1750,261 +588,48 @@ private:
   }
 
   void updateCharacterControllerOverlay() {
-    if (debugOverlayPass == nullptr) {
-      return;
-    }
-
-    std::vector<DebugOverlayInstance> characterMarkers;
-    std::vector<DebugOverlayInstance> characterSegments;
-    const size_t objectCount =
-        std::min(sceneAssets.size(), debugUiSettings.sceneObjects.size());
-    characterMarkers.reserve(objectCount * 2);
-    characterSegments.reserve(objectCount * 4);
-
-    for (size_t index = 0; index < objectCount; ++index) {
-      if (sceneAssets[index].kind != SceneAssetKind::CharacterController ||
-          !debugUiSettings.sceneObjects[index].visible) {
-        continue;
-      }
-
-      const SceneAssetInstance &sceneAsset = sceneAssets[index];
-      const glm::vec3 position = sceneAsset.characterControllerState.position;
-      const float radius = sceneAsset.characterControllerConfig.radius;
-      const float halfHeight = sceneAsset.characterControllerConfig.halfHeight;
-      const float yawRadians = sceneAsset.characterControllerState.yawRadians;
-      const glm::mat4 yawRotation = glm::rotate(
-          glm::mat4(1.0f), yawRadians, glm::vec3(0.0f, 1.0f, 0.0f));
-      const glm::vec4 color =
-          static_cast<int>(index) == debugUiSettings.selectedObjectIndex &&
-                  debugUiSettings.selectedLightIndex < 0 &&
-                  debugUiSettings.selectedBoneIndex < 0
-              ? glm::vec4(1.0f, 0.66f, 0.12f, 1.0f)
-              : glm::vec4(0.16f, 0.92f, 1.0f, 1.0f);
-
-      for (const float yOffset : {halfHeight, -halfHeight}) {
-        characterMarkers.push_back(DebugOverlayInstance{
-            .model = glm::translate(glm::mat4(1.0f),
-                                    position + glm::vec3(0.0f, yOffset, 0.0f)) *
-                     yawRotation *
-                     glm::scale(glm::mat4(1.0f),
-                                glm::vec3(radius, 1.0f, radius)),
-            .color = color,
-        });
-      }
-
-      const std::array<glm::vec3, 4> sideOffsets = {
-          glm::vec3(radius, 0.0f, 0.0f),
-          glm::vec3(-radius, 0.0f, 0.0f),
-          glm::vec3(0.0f, 0.0f, radius),
-          glm::vec3(0.0f, 0.0f, -radius),
-      };
-      for (const glm::vec3 &sideOffset : sideOffsets) {
-        const glm::vec3 worldOffset =
-            glm::vec3(yawRotation * glm::vec4(sideOffset, 0.0f));
-        characterSegments.push_back(DebugOverlayInstance{
-            .model = glm::translate(glm::mat4(1.0f), position + worldOffset) *
-                     glm::scale(glm::mat4(1.0f),
-                                glm::vec3(1.0f, halfHeight, 1.0f)),
-            .color = color,
-        });
-      }
-    }
-
-    debugOverlayPass->setCharacterMarkerMesh(characterControllerRingMesh);
-    debugOverlayPass->setCharacterSegmentMesh(
-        characterControllerVerticalLineMesh);
-    debugOverlayPass->setCharacterMarkers(std::move(characterMarkers));
-    debugOverlayPass->setCharacterSegments(std::move(characterSegments));
-    debugOverlayPass->setCharacterVisible(true);
+    auto context = debugOverlayRuntimeContext();
+    DefaultEngineDebugOverlayRuntime::updateCharacterControllerOverlay(context);
   }
 
   void updateBoneOverlay() {
-    if (debugOverlayPass == nullptr) {
-      return;
-    }
-
-    std::vector<DebugOverlayInstance> boneSegments;
-    std::vector<DebugOverlayInstance> boneMarkers;
-
-    if (debugUiSettings.bonesVisible) {
-      const size_t objectCount =
-          std::min(sceneAssetModels.size(), debugUiSettings.sceneObjects.size());
-      for (size_t objectIndex = 0; objectIndex < objectCount; ++objectIndex) {
-        if (!debugUiSettings.sceneObjects[objectIndex].visible) {
-          continue;
-        }
-
-        const RenderableModel &model = sceneAssetModels[objectIndex];
-        const ModelAsset *asset = model.modelAsset();
-        const SkeletonPose *pose = model.currentSkeletonPose();
-        const SkeletonAssetData *skeleton = model.skeletonAsset();
-        if (asset == nullptr || pose == nullptr || skeleton == nullptr ||
-            skeleton->nodes.empty()) {
-          continue;
-        }
-
-        std::vector<bool> deformingNodes(skeleton->nodes.size(), false);
-        for (const auto &submesh : asset->submeshes()) {
-          if (submesh.skinIndex < 0 ||
-              static_cast<size_t>(submesh.skinIndex) >= skeleton->skins.size()) {
-            continue;
-          }
-          for (const int jointNodeIndex :
-               skeleton->skins[static_cast<size_t>(submesh.skinIndex)]
-                   .jointNodeIndices) {
-            if (jointNodeIndex >= 0 &&
-                static_cast<size_t>(jointNodeIndex) < deformingNodes.size()) {
-              deformingNodes[static_cast<size_t>(jointNodeIndex)] = true;
-            }
-          }
-        }
-
-        const glm::mat4 objectMatrix = AppSceneController::sceneTransformMatrix(
-            debugUiSettings.sceneObjects[objectIndex].transform);
-        const int selectedBoneIndex =
-            static_cast<int>(objectIndex) == debugUiSettings.selectedObjectIndex
-                ? debugUiSettings.selectedBoneIndex
-                : -1;
-
-        for (size_t nodeIndex = 0; nodeIndex < skeleton->nodes.size();
-             ++nodeIndex) {
-          if (!deformingNodes[nodeIndex]) {
-            continue;
-          }
-
-          const glm::mat4 worldMatrix =
-              objectMatrix * pose->worldTransform(nodeIndex);
-          const glm::vec3 jointPosition = debugPositionFromMatrix(worldMatrix);
-          const glm::vec4 color = boneDebugColor(
-              *skeleton, static_cast<int>(nodeIndex), selectedBoneIndex);
-          const float jointScale =
-              debugUiSettings.boneMarkerScale *
-              (static_cast<int>(nodeIndex) == selectedBoneIndex ? 1.45f : 1.0f);
-
-          boneMarkers.push_back(DebugOverlayInstance{
-              .model = glm::translate(glm::mat4(1.0f), jointPosition) *
-                       glm::scale(glm::mat4(1.0f), glm::vec3(jointScale)),
-              .color = color,
-          });
-
-          const int parentIndex =
-              skeleton->nodes[nodeIndex].parentIndex;
-          if (parentIndex < 0 ||
-              static_cast<size_t>(parentIndex) >= deformingNodes.size() ||
-              !deformingNodes[static_cast<size_t>(parentIndex)]) {
-            continue;
-          }
-
-          const glm::vec3 parentPosition = debugPositionFromMatrix(
-              objectMatrix * pose->worldTransform(parentIndex));
-          const glm::vec3 direction = jointPosition - parentPosition;
-          const float length = glm::length(direction);
-          if (length <= 1e-5f) {
-            continue;
-          }
-
-          const float segmentRadius = std::max(
-              debugUiSettings.boneMarkerScale * 0.8f, length * 0.045f);
-
-          boneSegments.push_back(DebugOverlayInstance{
-              .model = debugOrientationTransform(
-                  parentPosition, direction, segmentRadius, segmentRadius,
-                  length),
-              .color = color,
-          });
-        }
-      }
-    }
-
-    debugOverlayPass->setBonesVisible(debugUiSettings.bonesVisible);
-    debugOverlayPass->setBoneSegments(std::move(boneSegments));
-    debugOverlayPass->setBoneMarkers(std::move(boneMarkers));
+    auto context = debugOverlayRuntimeContext();
+    DefaultEngineDebugOverlayRuntime::updateBoneOverlay(context);
   }
 
   void reloadSceneAssets() {
-    backend.waitIdle();
-    std::unordered_map<std::string, TerrainPaintState> previousPaintStates;
-    for (size_t index = 0; index < sceneAssets.size() &&
-                         index < terrainPaintStates.size();
-         ++index) {
-      if (sceneAssets[index].kind != SceneAssetKind::Terrain ||
-          sceneAssets[index].terrainPaintCanvasPath.empty()) {
-        continue;
-      }
-      previousPaintStates.emplace(sceneAssets[index].terrainPaintCanvasPath,
-                                  std::move(terrainPaintStates[index]));
-    }
-
-    sceneAssets = resolvedSceneAssets();
-    terrainPaintStates.clear();
-    terrainPaintStates.resize(sceneAssets.size());
-    for (size_t index = 0; index < sceneAssets.size(); ++index) {
-      if (sceneAssets[index].kind != SceneAssetKind::Terrain ||
-          sceneAssets[index].terrainPaintCanvasPath.empty()) {
-        continue;
-      }
-      const auto previousStateIt =
-          previousPaintStates.find(sceneAssets[index].terrainPaintCanvasPath);
-      if (previousStateIt == previousPaintStates.end()) {
-        continue;
-      }
-      terrainPaintStates[index] = std::move(previousStateIt->second);
-    }
-
-    sceneAssetModels.clear();
-    sceneAssetModels.resize(sceneAssets.size());
-
-    for (size_t index = 0; index < sceneAssets.size(); ++index) {
-      loadSceneAssetModel(index);
-    }
-    syncSceneObjectsWithAssets();
-    rebuildSceneRenderItems();
+    auto context = sceneAssetRuntimeContext();
+    DefaultEngineSceneAssetRuntime::reloadSceneAssets(
+        context, sceneDescriptorSetLayout(),
+        sceneSecondaryDescriptorSetLayout(),
+        [this]() { rebuildSceneRenderItems(); });
   }
 
   void loadDebugSessionFromDisk() {
-    if (!engineConfig.enableDebugSessionPersistence) {
-      return;
-    }
-
-    try {
-      std::vector<SceneAssetInstance> loadedSceneAssets;
-      DebugSessionIO::loadDebugSession(debugSessionPath(), debugUiSettings,
-                                       &loadedSceneAssets);
-      if (!loadedSceneAssets.empty()) {
-        sceneDefinition.assets = std::move(loadedSceneAssets);
-      }
-      applyEngineConfigOverrides(debugUiSettings);
-      ensureDefaultEnvironmentPath();
-    } catch (const std::exception &e) {
-      std::cerr << "Failed to load debug session: " << e.what() << std::endl;
-    }
+    auto context = sessionRuntimeContext();
+    DefaultEngineSessionRuntime::loadDebugSessionFromDisk(
+        context, debugSessionPath(),
+        [this](DefaultDebugUISettings &settings) {
+          applyEngineConfigOverrides(settings);
+        },
+        [this]() { ensureDefaultEnvironmentPath(); });
   }
 
   void saveDebugSessionToDisk() {
-    if (!engineConfig.enableDebugSessionPersistence) {
-      return;
-    }
-
-    flushTerrainPaintMaterials(true);
-    saveTerrainPaintCanvasesToDisk();
-    if (!DebugSessionIO::saveDebugSession(debugSessionPath(),
-                                          debugUiSettings,
-                                          persistedSceneAssets())) {
-      std::cerr << "Failed to save debug session to "
-                << debugSessionPath().string() << std::endl;
-    }
+    auto context = sessionRuntimeContext();
+    DefaultEngineSessionRuntime::saveDebugSessionToDisk(
+        context, debugSessionPath(),
+        [this]() { flushTerrainPaintMaterials(true); },
+        [this]() { saveTerrainPaintCanvasesToDisk(); },
+        [this]() { return persistedSceneAssets(); });
   }
 
   void applyLoadedDebugSettings() {
-    ensureDefaultEnvironmentPath();
-    backend.waitIdle();
-    if (debugUiSettings.syncSkySunToLight) {
-      syncProceduralSkySunWithLight();
-    }
-    imageBasedLighting.rebuild(deviceContext(), commandContext(),
-                               debugUiSettings.iblBakeSettings);
-    renderer.recreate(deviceContext(), swapchainContext());
-    reloadSceneAssets();
+    auto context = sessionRuntimeContext();
+    DefaultEngineSessionRuntime::applyLoadedDebugSettings(
+        context, [this]() { ensureDefaultEnvironmentPath(); },
+        [this]() { syncProceduralSkySunWithLight(); },
+        [this]() { reloadSceneAssets(); });
   }
 
   void initVulkan() {

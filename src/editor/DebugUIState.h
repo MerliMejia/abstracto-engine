@@ -10,7 +10,6 @@
 #include <cmath>
 #include <cstdint>
 #include <functional>
-#include <string>
 #include <vector>
 
 #include <GLFW/glfw3.h>

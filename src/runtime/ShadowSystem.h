@@ -2,9 +2,7 @@
 
 #include "passes/PbrPass.h"
 #include "passes/ShadowPass.h"
-#include "resources/FrameGeometryUniforms.h"
 #include "editor/DebugUIState.h"
-#include "scene/AppSceneController.h"
 #include <algorithm>
 #include <array>
 #include <glm/gtc/matrix_transform.hpp>

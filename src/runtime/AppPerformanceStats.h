@@ -1,6 +1,5 @@
 #pragma once
 
-#include "assets/RenderableModel.h"
 #include "editor/DebugUIState.h"
 
 class AppPerformanceStats {

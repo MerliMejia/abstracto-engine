@@ -2,6 +2,7 @@
 
 #include "editor/DebugUIState.h"
 #include "SceneDefinition.h"
+#include <cmath>
 #include <filesystem>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -127,6 +128,9 @@ public:
     if (sceneAsset.kind == SceneAssetKind::CharacterController) {
       return "Character Controller";
     }
+    if (sceneAsset.kind == SceneAssetKind::Camera) {
+      return "Camera";
+    }
     if (!sceneAsset.assetPath.empty()) {
       const std::string stem =
           std::filesystem::path(sceneAsset.assetPath).stem().string();
@@ -135,5 +139,14 @@ public:
       }
     }
     return "Scene Asset " + std::to_string(index);
+  }
+
+  static glm::vec3 forwardFromSceneTransform(const SceneTransform &transform) {
+    const float yawRadians = glm::radians(transform.rotationDegrees.y);
+    const float pitchRadians = glm::radians(transform.rotationDegrees.x);
+    const float cosPitch = std::cos(pitchRadians);
+    return glm::normalize(glm::vec3(std::sin(yawRadians) * cosPitch,
+                                    std::sin(pitchRadians),
+                                    -std::cos(yawRadians) * cosPitch));
   }
 };

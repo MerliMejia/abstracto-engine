@@ -219,6 +219,22 @@ characterControllerStateFromJson(const json &value) {
   return state;
 }
 
+static inline json cameraConfigToJson(const SceneCameraConfig &config) {
+  return {
+      {"fieldOfViewDegrees", config.fieldOfViewDegrees},
+      {"farPlane", config.farPlane},
+  };
+}
+
+static inline SceneCameraConfig cameraConfigFromJson(const json &value) {
+  SceneCameraConfig config;
+  config.fieldOfViewDegrees = glm::clamp(
+      value.value("fieldOfViewDegrees", config.fieldOfViewDegrees), 10.0f,
+      120.0f);
+  config.farPlane = std::max(value.value("farPlane", config.farPlane), 1.0f);
+  return config;
+}
+
 static inline json sceneAssetToJson(const SceneAssetInstance &sceneAsset) {
   json value = {
       {"kind", static_cast<uint32_t>(sceneAsset.kind)},
@@ -257,6 +273,8 @@ static inline json sceneAssetToJson(const SceneAssetInstance &sceneAsset) {
         characterControllerConfigToJson(sceneAsset.characterControllerConfig);
     value["characterControllerState"] =
         characterControllerStateToJson(sceneAsset.characterControllerState);
+  } else if (sceneAsset.kind == SceneAssetKind::Camera) {
+    value["cameraConfig"] = cameraConfigToJson(sceneAsset.cameraConfig);
   }
   return value;
 }
@@ -342,6 +360,10 @@ static inline SceneAssetInstance sceneAssetFromJson(const json &value) {
     sceneAsset.transform.position = sceneAsset.characterControllerState.position;
     sceneAsset.transform.rotationDegrees.y =
         glm::degrees(sceneAsset.characterControllerState.yawRadians);
+  } else if (sceneAsset.kind == SceneAssetKind::Camera &&
+             value.contains("cameraConfig") &&
+             value["cameraConfig"].is_object()) {
+    sceneAsset.cameraConfig = cameraConfigFromJson(value["cameraConfig"]);
   }
   return sceneAsset;
 }

@@ -20,6 +20,7 @@
 #include "backend/VulkanBackend.h"
 #include "core/PassRenderer.h"
 #include "core/RenderPass.h"
+#include "debug/CameraDebugMeshes.h"
 #include "debug/CharacterControllerDebugMeshes.h"
 #include "debug/DebugLightMeshes.h"
 #include "debug/TerrainDebugMeshes.h"
@@ -93,6 +94,7 @@ private:
   TypedMesh<Vertex> directionalLightMarkerMesh;
   TypedMesh<Vertex> boneSegmentMesh;
   TypedMesh<Vertex> boneJointMarkerMesh;
+  TypedMesh<Vertex> cameraGizmoMesh;
   TypedMesh<Vertex> characterControllerRingMesh;
   TypedMesh<Vertex> characterControllerVerticalLineMesh;
   TypedMesh<Vertex> terrainWireframeMesh;
@@ -116,6 +118,7 @@ private:
   float smoothedFrameTimeMs = 0.0f;
   bool debugUiVisible = true;
   bool debugUiToggleHeld = false;
+  bool sceneCameraEscapeHeld = false;
   int activeTerrainWireframeIndex = -1;
   std::optional<TerrainConfig> activeTerrainWireframeConfig;
   std::optional<DefaultEngineTerrainFlattenStroke> activeTerrainFlattenStroke;
@@ -172,6 +175,7 @@ private:
         .sceneAssetModels = sceneAssetModels,
         .debugUiSettings = debugUiSettings,
         .debugOverlayPass = debugOverlayPass,
+        .cameraGizmoMesh = cameraGizmoMesh,
         .characterControllerRingMesh = characterControllerRingMesh,
         .characterControllerVerticalLineMesh = characterControllerVerticalLineMesh,
     };
@@ -332,6 +336,71 @@ private:
       return emptyEditorModel;
     }
     return sceneAssetModels[selectedIndex];
+  }
+
+  void sanitizeSceneCameraPreview() {
+    if (!DefaultDebugCameraController::sceneCameraPreviewActive(
+            debugUiSettings)) {
+      return;
+    }
+
+    const int sceneCameraIndex = debugUiSettings.viewportSceneCameraIndex;
+    const size_t objectCount =
+        std::min(sceneAssets.size(), debugUiSettings.sceneObjects.size());
+    if (sceneCameraIndex < 0 ||
+        static_cast<size_t>(sceneCameraIndex) >= objectCount ||
+        sceneAssets[static_cast<size_t>(sceneCameraIndex)].kind !=
+            SceneAssetKind::Camera) {
+      DefaultDebugCameraController::deactivateSceneCameraPreview(
+          debugUiSettings);
+    }
+  }
+
+  struct ViewportCameraState {
+    glm::vec3 position{0.0f};
+    glm::vec3 forward{0.0f, 0.0f, -1.0f};
+    float verticalFovRadians = glm::radians(45.0f);
+    float farPlane = 100.0f;
+  };
+
+  ViewportCameraState currentViewportCameraState() {
+    sanitizeSceneCameraPreview();
+    if (!DefaultDebugCameraController::sceneCameraPreviewActive(
+            debugUiSettings)) {
+      return ViewportCameraState{
+          .position = debugUiSettings.cameraPosition,
+          .forward =
+              DefaultDebugCameraController::forwardFromSettings(debugUiSettings),
+          .verticalFovRadians = glm::radians(45.0f),
+          .farPlane = debugUiSettings.cameraFarPlane,
+      };
+    }
+
+    const size_t sceneCameraIndex =
+        static_cast<size_t>(debugUiSettings.viewportSceneCameraIndex);
+    const SceneObject &sceneObject =
+        debugUiSettings.sceneObjects[sceneCameraIndex];
+    const SceneAssetInstance &sceneAsset = sceneAssets[sceneCameraIndex];
+    return ViewportCameraState{
+        .position = sceneObject.transform.position,
+        .forward =
+            AppSceneController::forwardFromSceneTransform(sceneObject.transform),
+        .verticalFovRadians =
+            glm::radians(sceneAsset.cameraConfig.fieldOfViewDegrees),
+        .farPlane = sceneAsset.cameraConfig.farPlane,
+    };
+  }
+
+  void updateSceneCameraShortcuts() {
+    const bool escapePressed =
+        glfwGetKey(window.handle(), GLFW_KEY_ESCAPE) == GLFW_PRESS;
+    if (escapePressed && !sceneCameraEscapeHeld &&
+        DefaultDebugCameraController::sceneCameraPreviewActive(
+            debugUiSettings)) {
+      DefaultDebugCameraController::deactivateSceneCameraPreview(
+          debugUiSettings);
+    }
+    sceneCameraEscapeHeld = escapePressed;
   }
 
   uint32_t totalMaterialCount() const {
@@ -592,6 +661,11 @@ private:
     DefaultEngineDebugOverlayRuntime::updateCharacterControllerOverlay(context);
   }
 
+  void updateSceneCameraOverlay() {
+    auto context = debugOverlayRuntimeContext();
+    DefaultEngineDebugOverlayRuntime::updateSceneCameraOverlay(context);
+  }
+
   void updateBoneOverlay() {
     auto context = debugOverlayRuntimeContext();
     DefaultEngineDebugOverlayRuntime::updateBoneOverlay(context);
@@ -667,6 +741,10 @@ private:
     boneJointMarkerMesh = buildBoneJointMarkerMesh();
     boneJointMarkerMesh.createVertexBuffer(commandContext(), deviceContext());
     boneJointMarkerMesh.createIndexBuffer(commandContext(), deviceContext());
+
+    cameraGizmoMesh = buildCameraGizmoMesh();
+    cameraGizmoMesh.createVertexBuffer(commandContext(), deviceContext());
+    cameraGizmoMesh.createIndexBuffer(commandContext(), deviceContext());
 
     characterControllerRingMesh = buildCharacterControllerRingMesh();
     characterControllerRingMesh.createVertexBuffer(commandContext(),
@@ -808,8 +886,6 @@ private:
       if (debugPresentPass != nullptr) {
         debugPresentPass->setSelectedOutput(
             static_cast<uint32_t>(debugUiSettings.presentedOutput));
-        debugPresentPass->setClipPlanes(DEFAULT_ENGINE_CAMERA_NEAR_PLANE,
-                                        debugUiSettings.cameraFarPlane);
       }
       if (uiResult.iblBakeRequested) {
         backend.waitIdle();
@@ -824,7 +900,11 @@ private:
 
     DefaultDebugCameraController cameraController =
         DefaultDebugCameraController::create(debugUiSettings);
-    cameraController.update(deltaSeconds, window.handle());
+    updateSceneCameraShortcuts();
+    if (!DefaultDebugCameraController::sceneCameraPreviewActive(
+            debugUiSettings)) {
+      cameraController.update(deltaSeconds, window.handle());
+    }
     for (auto &sceneAssetModel : sceneAssetModels) {
       sceneAssetModel.updateAnimationPlayback(deltaSeconds);
     }
@@ -837,21 +917,24 @@ private:
     geometryUniformData.model = glm::mat4(1.0f);
     geometryUniformData.modelNormal =
         glm::transpose(glm::inverse(geometryUniformData.model));
+    const ViewportCameraState viewportCamera = currentViewportCameraState();
 
     geometryUniformData.view = glm::lookAt(
-        debugUiSettings.cameraPosition,
-        debugUiSettings.cameraPosition +
-            DefaultDebugCameraController::forwardFromSettings(debugUiSettings),
+        viewportCamera.position, viewportCamera.position + viewportCamera.forward,
         glm::vec3(0.0f, 1.0f, 0.0f));
 
     geometryUniformData.proj = glm::perspective(
-        glm::radians(45.0f),
+        viewportCamera.verticalFovRadians,
         static_cast<float>(swapchainContext().extent2D().width) /
             static_cast<float>(swapchainContext().extent2D().height),
-        DEFAULT_ENGINE_CAMERA_NEAR_PLANE, debugUiSettings.cameraFarPlane);
+        DEFAULT_ENGINE_CAMERA_NEAR_PLANE, viewportCamera.farPlane);
     geometryUniformData.proj[1][1] *= -1.0f;
 
     frameGeometryUniforms.write(frameState->frameIndex, geometryUniformData);
+    if (debugPresentPass != nullptr) {
+      debugPresentPass->setClipPlanes(DEFAULT_ENGINE_CAMERA_NEAR_PLANE,
+                                      viewportCamera.farPlane);
+    }
 
     if (pbrPass != nullptr) {
       pbrPass->setCamera(geometryUniformData.proj, geometryUniformData.view);
@@ -893,6 +976,7 @@ private:
     updateTerrainWireframeOverlay();
     updateTerrainEditOverlay(geometryUniformData.view, geometryUniformData.proj,
                              deltaSeconds);
+    updateSceneCameraOverlay();
     updateCharacterControllerOverlay();
     updateBoneOverlay();
     if (tonemapPass != nullptr) {

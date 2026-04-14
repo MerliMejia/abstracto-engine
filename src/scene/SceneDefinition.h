@@ -13,6 +13,7 @@ enum class SceneAssetKind {
   File = 0,
   Terrain = 1,
   CharacterController = 2,
+  Camera = 3,
 };
 
 struct CharacterControllerConfig {
@@ -32,6 +33,11 @@ struct CharacterControllerState {
   glm::vec3 velocity{0.0f};
   float yawRadians = 0.0f;
   bool grounded = false;
+};
+
+struct SceneCameraConfig {
+  float fieldOfViewDegrees = 45.0f;
+  float farPlane = 100.0f;
 };
 
 struct SceneObjectOverride {
@@ -74,6 +80,7 @@ struct SceneAssetInstance {
   std::vector<TerrainMaterialOverride> terrainMaterialOverrides;
   CharacterControllerConfig characterControllerConfig{};
   CharacterControllerState characterControllerState{};
+  SceneCameraConfig cameraConfig{};
 
   static SceneAssetInstance fromAsset(std::string assetPathValue) {
     return SceneAssetInstance{
@@ -99,6 +106,17 @@ struct SceneAssetInstance {
     };
     sceneAsset.transform.position = sceneAsset.characterControllerState.position;
     return sceneAsset;
+  }
+
+  static SceneAssetInstance makeCamera(
+      SceneTransform transformValue = {}, SceneCameraConfig cameraConfigValue = {},
+      std::string nameValue = "Camera") {
+    return SceneAssetInstance{
+        .kind = SceneAssetKind::Camera,
+        .name = std::move(nameValue),
+        .transform = std::move(transformValue),
+        .cameraConfig = std::move(cameraConfigValue),
+    };
   }
 };
 

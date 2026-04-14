@@ -93,6 +93,28 @@ private:
     return sceneAsset;
   }
 
+  static SceneAssetInstance
+  defaultCameraAsset(const DefaultDebugUISettings &settings) {
+    return SceneAssetInstance::makeCamera(
+        DefaultDebugCameraController::sceneTransformFromSettings(settings),
+        SceneCameraConfig{.fieldOfViewDegrees = 45.0f,
+                          .farPlane = settings.cameraFarPlane},
+        "Camera");
+  }
+
+  void activateSceneCameraPreviewIfApplicable(int index) {
+    if (index < 0 ||
+        static_cast<size_t>(index) >= bindings.sceneAssets.size()) {
+      return;
+    }
+    if (bindings.sceneAssets[static_cast<size_t>(index)].kind !=
+        SceneAssetKind::Camera) {
+      return;
+    }
+    DefaultDebugCameraController::activateSceneCameraPreview(bindings.settings,
+                                                             index);
+  }
+
   void addSceneAsset(SceneAssetInstance sceneAsset) {
     auto &settings = bindings.settings;
     bindings.sceneAssets.push_back(std::move(sceneAsset));
@@ -108,6 +130,7 @@ private:
     settings.selectedLightIndex = -1;
     settings.selectedBoneIndex = -1;
     settings.selectedMaterialIndex = 0;
+    activateSceneCameraPreviewIfApplicable(static_cast<int>(assetIndex));
   }
 
   void removeSelectedSceneAsset() {
@@ -121,6 +144,15 @@ private:
     }
 
     const size_t selectedIndex = static_cast<size_t>(settings.selectedObjectIndex);
+    if (DefaultDebugCameraController::sceneCameraPreviewActive(settings)) {
+      if (settings.viewportSceneCameraIndex ==
+          static_cast<int>(selectedIndex)) {
+        DefaultDebugCameraController::deactivateSceneCameraPreview(settings);
+      } else if (settings.viewportSceneCameraIndex >
+                 static_cast<int>(selectedIndex)) {
+        --settings.viewportSceneCameraIndex;
+      }
+    }
     bindings.sceneAssets.erase(bindings.sceneAssets.begin() +
                                static_cast<long>(selectedIndex));
     settings.sceneObjects.erase(settings.sceneObjects.begin() +
@@ -217,6 +249,10 @@ private:
       }
       if (ImGui::MenuItem("Character Controller")) {
         addSceneAsset(defaultCharacterControllerAsset());
+        result.sceneAssetChanged = true;
+      }
+      if (ImGui::MenuItem("Camera")) {
+        addSceneAsset(defaultCameraAsset(bindings.settings));
         result.sceneAssetChanged = true;
       }
       ImGui::Separator();
@@ -352,6 +388,7 @@ private:
     settings.selectedObjectIndex = index;
     settings.selectedLightIndex = -1;
     settings.selectedBoneIndex = -1;
+    activateSceneCameraPreviewIfApplicable(index);
 
     if (bindings.sceneModel.modelAsset() == nullptr) {
       return;
@@ -540,6 +577,9 @@ private:
           sceneAsset->kind == SceneAssetKind::CharacterController) {
         ImGui::TextUnformatted("Asset: Character Controller");
       } else if (sceneAsset != nullptr &&
+                 sceneAsset->kind == SceneAssetKind::Camera) {
+        ImGui::TextUnformatted("Asset: Camera");
+      } else if (sceneAsset != nullptr &&
                  sceneAsset->kind == SceneAssetKind::Terrain) {
         ImGui::TextUnformatted("Asset: Terrain");
       } else {
@@ -557,6 +597,7 @@ private:
         ImGui::DragFloat3("Scale", &object.transform.scale.x, 0.1f, 0.01f,
                           200.0f);
     result.sceneAssetChanged |= transformChanged;
+    result.sceneAssetChanged |= buildCameraInspector(selectedIndex, sceneAsset);
 
     const TerrainInspectorResult terrainResult =
         buildTerrainInspector(selectedIndex, sceneAsset);
@@ -631,6 +672,47 @@ private:
                           : "no");
     result.materialChanged = materialChanged;
     return result;
+  }
+
+  bool buildCameraInspector(size_t sceneAssetIndex,
+                            SceneAssetInstance *sceneAsset) {
+    if (sceneAsset == nullptr || sceneAsset->kind != SceneAssetKind::Camera) {
+      return false;
+    }
+
+    auto &settings = bindings.settings;
+    bool changed = false;
+    const bool previewActive =
+        DefaultDebugCameraController::sceneCameraPreviewActive(settings) &&
+        settings.viewportSceneCameraIndex == static_cast<int>(sceneAssetIndex);
+
+    ImGui::SeparatorText("Camera");
+    ImGui::TextUnformatted(previewActive ? "Viewport: Scene Camera"
+                                         : "Viewport: Debug Camera");
+    if (previewActive) {
+      if (ImGui::Button("Return To Debug Camera")) {
+        DefaultDebugCameraController::deactivateSceneCameraPreview(settings);
+      }
+    } else if (ImGui::Button("View Through Camera")) {
+      DefaultDebugCameraController::activateSceneCameraPreview(
+          settings, static_cast<int>(sceneAssetIndex));
+    }
+    ImGui::TextUnformatted("Press ESC to return to the debug camera.");
+
+    if (ImGui::Button("Match Debug Camera")) {
+      sceneAsset->transform =
+          DefaultDebugCameraController::sceneTransformFromSettings(settings);
+      sceneAsset->cameraConfig.farPlane = settings.cameraFarPlane;
+      changed = true;
+    }
+
+    changed |= ImGui::SliderFloat("Field Of View",
+                                  &sceneAsset->cameraConfig.fieldOfViewDegrees,
+                                  10.0f, 120.0f, "%.1f deg");
+    changed |= ImGui::SliderFloat("Camera Far Clip",
+                                  &sceneAsset->cameraConfig.farPlane, 10.0f,
+                                  500.0f, "%.1f");
+    return changed;
   }
 
   struct TerrainInspectorResult {

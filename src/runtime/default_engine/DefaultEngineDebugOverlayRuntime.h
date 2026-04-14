@@ -13,6 +13,7 @@ struct DefaultEngineDebugOverlayRuntimeContext {
   std::vector<RenderableModel> &sceneAssetModels;
   DefaultDebugUISettings &debugUiSettings;
   DebugOverlayPass *debugOverlayPass = nullptr;
+  TypedMesh<Vertex> &cameraGizmoMesh;
   TypedMesh<Vertex> &characterControllerRingMesh;
   TypedMesh<Vertex> &characterControllerVerticalLineMesh;
 };
@@ -141,6 +142,59 @@ public:
     context.debugOverlayPass->setCharacterMarkers(std::move(characterMarkers));
     context.debugOverlayPass->setCharacterSegments(std::move(characterSegments));
     context.debugOverlayPass->setCharacterVisible(true);
+  }
+
+  static void
+  updateSceneCameraOverlay(DefaultEngineDebugOverlayRuntimeContext &context) {
+    if (context.debugOverlayPass == nullptr) {
+      return;
+    }
+
+    std::vector<DebugOverlayInstance> cameraMarkers;
+    const size_t objectCount =
+        std::min(context.sceneAssets.size(),
+                 context.debugUiSettings.sceneObjects.size());
+    cameraMarkers.reserve(objectCount);
+
+    for (size_t index = 0; index < objectCount; ++index) {
+      if (context.sceneAssets[index].kind != SceneAssetKind::Camera ||
+          !context.debugUiSettings.sceneObjects[index].visible) {
+        continue;
+      }
+
+      const SceneObject &sceneObject =
+          context.debugUiSettings.sceneObjects[index];
+      const bool selected =
+          static_cast<int>(index) == context.debugUiSettings.selectedObjectIndex &&
+          context.debugUiSettings.selectedLightIndex < 0 &&
+          context.debugUiSettings.selectedBoneIndex < 0;
+      const bool previewed =
+          DefaultDebugCameraController::sceneCameraPreviewActive(
+              context.debugUiSettings) &&
+          context.debugUiSettings.viewportSceneCameraIndex ==
+              static_cast<int>(index);
+      if (previewed) {
+        continue;
+      }
+      const glm::vec4 color =
+          selected ? glm::vec4(1.0f, 0.46f, 0.12f, 1.0f)
+                   : glm::vec4(0.2f, 0.9f, 1.0f, 1.0f);
+      const float scale = selected ? 0.4f : 0.34f;
+
+      cameraMarkers.push_back(DebugOverlayInstance{
+          .model = debugOrientationTransform(
+              sceneObject.transform.position,
+              AppSceneController::forwardFromSceneTransform(
+                  sceneObject.transform),
+              scale, scale, scale),
+          .color = color,
+      });
+    }
+
+    context.debugOverlayPass->setSceneCameraMarkerMesh(context.cameraGizmoMesh);
+    const bool hasCameraMarkers = !cameraMarkers.empty();
+    context.debugOverlayPass->setSceneCameraMarkers(std::move(cameraMarkers));
+    context.debugOverlayPass->setSceneCameraVisible(hasCameraMarkers);
   }
 
   static void updateBoneOverlay(DefaultEngineDebugOverlayRuntimeContext &context) {

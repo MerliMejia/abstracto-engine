@@ -33,6 +33,11 @@ enum class PresentedOutput : uint32_t {
   SpotShadow2 = 11,
 };
 
+enum class ViewportCameraMode : uint32_t {
+  Debug = 0,
+  SceneCamera = 1,
+};
+
 struct DefaultDebugUISettings {
   PresentedOutput presentedOutput = PresentedOutput::PbrPass;
   PbrDebugView pbrDebugView = PbrDebugView::Final;
@@ -80,6 +85,8 @@ struct DefaultDebugUISettings {
   float cameraMoveSpeed = 2.5f;
   float cameraLookSensitivity = 0.0035f;
   float cameraFarPlane = 100.0f;
+  ViewportCameraMode viewportCameraMode = ViewportCameraMode::Debug;
+  int viewportSceneCameraIndex = -1;
   bool cameraLookActive = false;
   double cameraLastCursorX = 0.0;
   double cameraLastCursorY = 0.0;
@@ -118,6 +125,54 @@ public:
   static glm::vec3 forwardFromSettings(const DefaultDebugUISettings &settings) {
     return forwardFromAngles(settings.cameraYawRadians,
                              settings.cameraPitchRadians);
+  }
+
+  static void anglesFromForward(const glm::vec3 &forward, float &yawRadians,
+                                float &pitchRadians) {
+    const glm::vec3 normalizedForward =
+        glm::normalize(glm::length(forward) > 1e-6f
+                           ? forward
+                           : glm::vec3(0.0f, 0.0f, -1.0f));
+    pitchRadians =
+        std::asin(glm::clamp(normalizedForward.y, -1.0f, 1.0f));
+    yawRadians = std::atan2(normalizedForward.x, -normalizedForward.z);
+  }
+
+  static SceneTransform sceneTransformFromPose(const glm::vec3 &position,
+                                               float yawRadians,
+                                               float pitchRadians) {
+    return SceneTransform{
+        .position = position,
+        .rotationDegrees = {glm::degrees(pitchRadians),
+                            glm::degrees(yawRadians), 0.0f},
+        .scale = {1.0f, 1.0f, 1.0f},
+    };
+  }
+
+  static SceneTransform
+  sceneTransformFromSettings(const DefaultDebugUISettings &settings) {
+    return sceneTransformFromPose(settings.cameraPosition,
+                                  settings.cameraYawRadians,
+                                  settings.cameraPitchRadians);
+  }
+
+  static void activateSceneCameraPreview(DefaultDebugUISettings &settings,
+                                         int sceneCameraIndex) {
+    settings.viewportCameraMode = ViewportCameraMode::SceneCamera;
+    settings.viewportSceneCameraIndex = sceneCameraIndex;
+    settings.cameraLookActive = false;
+  }
+
+  static void deactivateSceneCameraPreview(DefaultDebugUISettings &settings) {
+    settings.viewportCameraMode = ViewportCameraMode::Debug;
+    settings.viewportSceneCameraIndex = -1;
+    settings.cameraLookActive = false;
+  }
+
+  static bool
+  sceneCameraPreviewActive(const DefaultDebugUISettings &settings) {
+    return settings.viewportCameraMode == ViewportCameraMode::SceneCamera &&
+           settings.viewportSceneCameraIndex >= 0;
   }
 
   glm::vec3 currentForward() const { return forwardFromSettings(settings); }

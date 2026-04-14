@@ -39,14 +39,31 @@ vec4FromJson(const json &value,
                    value[2].get<float>(), value[3].get<float>());
 }
 
-static inline json sceneObjectToJson(const SceneObject &object) {
-  json value = {
-      {"name", object.name},
-      {"visible", object.visible},
-      {"position", vec3ToJson(object.transform.position)},
-      {"rotationDegrees", vec3ToJson(object.transform.rotationDegrees)},
-      {"scale", vec3ToJson(object.transform.scale)},
+static inline json sceneTransformToJson(const SceneTransform &transform) {
+  return {
+      {"position", vec3ToJson(transform.position)},
+      {"rotationDegrees", vec3ToJson(transform.rotationDegrees)},
+      {"scale", vec3ToJson(transform.scale)},
   };
+}
+
+static inline SceneTransform
+sceneTransformFromJson(const json &value,
+                       const SceneTransform &fallback = SceneTransform{}) {
+  SceneTransform transform = fallback;
+  transform.position =
+      vec3FromJson(value.value("position", json::array()), transform.position);
+  transform.rotationDegrees = vec3FromJson(
+      value.value("rotationDegrees", json::array()), transform.rotationDegrees);
+  transform.scale =
+      vec3FromJson(value.value("scale", json::array()), transform.scale);
+  return transform;
+}
+
+static inline json sceneObjectToJson(const SceneObject &object) {
+  json value = sceneTransformToJson(object.transform);
+  value["name"] = object.name;
+  value["visible"] = object.visible;
   return value;
 }
 
@@ -54,13 +71,7 @@ static inline SceneObject sceneObjectFromJson(const json &value) {
   SceneObject object;
   object.name = value.value("name", object.name);
   object.visible = value.value("visible", object.visible);
-  object.transform.position = vec3FromJson(
-      value.value("position", json::array()), object.transform.position);
-  object.transform.rotationDegrees =
-      vec3FromJson(value.value("rotationDegrees", json::array()),
-                   object.transform.rotationDegrees);
-  object.transform.scale =
-      vec3FromJson(value.value("scale", json::array()), object.transform.scale);
+  object.transform = sceneTransformFromJson(value, object.transform);
   return object;
 }
 
@@ -236,28 +247,58 @@ static inline SceneCameraConfig cameraConfigFromJson(const json &value) {
 }
 
 static inline json sceneAssetToJson(const SceneAssetInstance &sceneAsset) {
-  json value = {
-      {"kind", static_cast<uint32_t>(sceneAsset.kind)},
-      {"assetPath", sceneAsset.assetPath},
-      {"name", sceneAsset.name},
-      {"visible", sceneAsset.visible},
-      {"position", vec3ToJson(sceneAsset.transform.position)},
-      {"rotationDegrees", vec3ToJson(sceneAsset.transform.rotationDegrees)},
-      {"scale", vec3ToJson(sceneAsset.transform.scale)},
-      {"terrainWireframeVisible", sceneAsset.terrainWireframeVisible},
-      {"terrainEditMode", sceneAsset.terrainEditMode},
-      {"terrainBrushRadius", sceneAsset.terrainBrushRadius},
-      {"terrainBrushLowerMode", sceneAsset.terrainBrushLowerMode},
-      {"terrainBrushFlattenMode", sceneAsset.terrainBrushFlattenMode},
-      {"terrainBrushColorPaintMode", sceneAsset.terrainBrushColorPaintMode},
-      {"terrainBrushColor", vec4ToJson(sceneAsset.terrainBrushColor)},
-      {"terrainBrushTexturePaintMode", sceneAsset.terrainBrushTexturePaintMode},
-      {"terrainBrushOpacity", sceneAsset.terrainBrushOpacity},
-      {"terrainBrushTextureVariation", sceneAsset.terrainBrushTextureVariation},
-      {"terrainPaintCanvasResolution", sceneAsset.terrainPaintCanvasResolution},
-      {"terrainPaintCanvasPath", sceneAsset.terrainPaintCanvasPath},
-      {"terrainBrushTexturePath", sceneAsset.terrainBrushTexturePath},
-  };
+  json value = sceneTransformToJson(sceneAsset.transform);
+  value["kind"] = static_cast<uint32_t>(sceneAsset.kind);
+  value["assetPath"] = sceneAsset.assetPath;
+  value["name"] = sceneAsset.name;
+  value["visible"] = sceneAsset.visible;
+  value["renderPrimaryTransform"] = sceneAsset.renderPrimaryTransform;
+  value["terrainWireframeVisible"] = sceneAsset.terrainWireframeVisible;
+  value["terrainEditMode"] = sceneAsset.terrainEditMode;
+  value["terrainBrushRadius"] = sceneAsset.terrainBrushRadius;
+  value["terrainBrushLowerMode"] = sceneAsset.terrainBrushLowerMode;
+  value["terrainBrushFlattenMode"] = sceneAsset.terrainBrushFlattenMode;
+  value["terrainBrushColorPaintMode"] = sceneAsset.terrainBrushColorPaintMode;
+  value["terrainBrushColor"] = vec4ToJson(sceneAsset.terrainBrushColor);
+  value["terrainBrushTexturePaintMode"] =
+      sceneAsset.terrainBrushTexturePaintMode;
+  value["terrainBrushOpacity"] = sceneAsset.terrainBrushOpacity;
+  value["terrainBrushTextureVariation"] =
+      sceneAsset.terrainBrushTextureVariation;
+  value["terrainPaintCanvasResolution"] =
+      sceneAsset.terrainPaintCanvasResolution;
+  value["terrainPaintCanvasPath"] = sceneAsset.terrainPaintCanvasPath;
+  value["terrainBrushTexturePath"] = sceneAsset.terrainBrushTexturePath;
+  if (!sceneAsset.instanceTransforms.empty()) {
+    json instanceTransforms = json::array();
+    for (const auto &instanceTransform : sceneAsset.instanceTransforms) {
+      instanceTransforms.push_back(sceneTransformToJson(instanceTransform));
+    }
+    value["instanceTransforms"] = std::move(instanceTransforms);
+  }
+  if (!sceneAsset.targetTerrainName.empty()) {
+    value["targetTerrainName"] = sceneAsset.targetTerrainName;
+  }
+  value["instanceSpacing"] = sceneAsset.instanceSpacing;
+  value["instanceJitter"] = sceneAsset.instanceJitter;
+  value["instanceScaleRange"] = json::array(
+      {sceneAsset.instanceScaleRange.x, sceneAsset.instanceScaleRange.y});
+  value["instanceScaleVerticalRange"] = json::array(
+      {sceneAsset.instanceScaleVerticalRange.x,
+       sceneAsset.instanceScaleVerticalRange.y});
+  value["instanceAlignToTerrainNormal"] =
+      sceneAsset.instanceAlignToTerrainNormal;
+  value["instanceRandomYaw"] = sceneAsset.instanceRandomYaw;
+  value["instanceYawRangeDegrees"] = sceneAsset.instanceYawRangeDegrees;
+  value["instancePitchRangeDegrees"] = sceneAsset.instancePitchRangeDegrees;
+  value["instanceRollRangeDegrees"] = sceneAsset.instanceRollRangeDegrees;
+  value["instanceMaxSlopeDegrees"] = sceneAsset.instanceMaxSlopeDegrees;
+  value["instanceHeightOffset"] = sceneAsset.instanceHeightOffset;
+  value["instanceHeightJitter"] = sceneAsset.instanceHeightJitter;
+  value["instanceScatterSeed"] = sceneAsset.instanceScatterSeed;
+  value["instancePaintMode"] = sceneAsset.instancePaintMode;
+  value["instanceEraseMode"] = sceneAsset.instanceEraseMode;
+  value["instanceBrushRadius"] = sceneAsset.instanceBrushRadius;
   if (sceneAsset.kind == SceneAssetKind::Terrain) {
     value["terrainConfig"] = terrainConfigToJson(sceneAsset.terrainConfig);
     if (!sceneAsset.terrainMaterialOverrides.empty()) {
@@ -286,15 +327,79 @@ static inline SceneAssetInstance sceneAssetFromJson(const json &value) {
   sceneAsset.assetPath = value.value("assetPath", sceneAsset.assetPath);
   sceneAsset.name = value.value("name", sceneAsset.name);
   sceneAsset.visible = value.value("visible", sceneAsset.visible);
-  sceneAsset.transform.position =
-      vec3FromJson(value.value("position", json::array()),
-                   sceneAsset.transform.position);
-  sceneAsset.transform.rotationDegrees =
-      vec3FromJson(value.value("rotationDegrees", json::array()),
-                   sceneAsset.transform.rotationDegrees);
-  sceneAsset.transform.scale =
-      vec3FromJson(value.value("scale", json::array()),
-                   sceneAsset.transform.scale);
+  sceneAsset.renderPrimaryTransform =
+      value.value("renderPrimaryTransform", sceneAsset.renderPrimaryTransform);
+  sceneAsset.transform = sceneTransformFromJson(value, sceneAsset.transform);
+  if (value.contains("instanceTransforms") &&
+      value["instanceTransforms"].is_array()) {
+    sceneAsset.instanceTransforms.clear();
+    sceneAsset.instanceTransforms.reserve(value["instanceTransforms"].size());
+    for (const auto &instanceTransformValue : value["instanceTransforms"]) {
+      sceneAsset.instanceTransforms.push_back(
+          sceneTransformFromJson(instanceTransformValue));
+    }
+  }
+  sceneAsset.targetTerrainName =
+      value.value("targetTerrainName", sceneAsset.targetTerrainName);
+  sceneAsset.instanceSpacing =
+      std::max(value.value("instanceSpacing", sceneAsset.instanceSpacing), 0.05f);
+  sceneAsset.instanceJitter =
+      glm::clamp(value.value("instanceJitter", sceneAsset.instanceJitter), 0.0f,
+                 1.0f);
+  if (value.contains("instanceScaleRange") &&
+      value["instanceScaleRange"].is_array() &&
+      value["instanceScaleRange"].size() == 2) {
+    sceneAsset.instanceScaleRange = glm::vec2(
+        value["instanceScaleRange"][0].get<float>(),
+        value["instanceScaleRange"][1].get<float>());
+  }
+  sceneAsset.instanceScaleRange.x =
+      std::max(sceneAsset.instanceScaleRange.x, 0.01f);
+  sceneAsset.instanceScaleRange.y =
+      std::max(sceneAsset.instanceScaleRange.y, sceneAsset.instanceScaleRange.x);
+  if (value.contains("instanceScaleVerticalRange") &&
+      value["instanceScaleVerticalRange"].is_array() &&
+      value["instanceScaleVerticalRange"].size() == 2) {
+    sceneAsset.instanceScaleVerticalRange = glm::vec2(
+        value["instanceScaleVerticalRange"][0].get<float>(),
+        value["instanceScaleVerticalRange"][1].get<float>());
+  } else {
+    sceneAsset.instanceScaleVerticalRange = sceneAsset.instanceScaleRange;
+  }
+  sceneAsset.instanceScaleVerticalRange.x =
+      std::max(sceneAsset.instanceScaleVerticalRange.x, 0.01f);
+  sceneAsset.instanceScaleVerticalRange.y =
+      std::max(sceneAsset.instanceScaleVerticalRange.y,
+               sceneAsset.instanceScaleVerticalRange.x);
+  sceneAsset.instanceAlignToTerrainNormal = value.value(
+      "instanceAlignToTerrainNormal", sceneAsset.instanceAlignToTerrainNormal);
+  sceneAsset.instanceRandomYaw =
+      value.value("instanceRandomYaw", sceneAsset.instanceRandomYaw);
+  sceneAsset.instanceYawRangeDegrees = glm::clamp(
+      value.value("instanceYawRangeDegrees", sceneAsset.instanceYawRangeDegrees),
+      0.0f, 360.0f);
+  sceneAsset.instancePitchRangeDegrees = glm::clamp(
+      value.value("instancePitchRangeDegrees",
+                  sceneAsset.instancePitchRangeDegrees),
+      0.0f, 180.0f);
+  sceneAsset.instanceRollRangeDegrees = glm::clamp(
+      value.value("instanceRollRangeDegrees", sceneAsset.instanceRollRangeDegrees),
+      0.0f, 180.0f);
+  sceneAsset.instanceMaxSlopeDegrees = glm::clamp(
+      value.value("instanceMaxSlopeDegrees", sceneAsset.instanceMaxSlopeDegrees),
+      0.0f, 89.9f);
+  sceneAsset.instanceHeightOffset = value.value(
+      "instanceHeightOffset", sceneAsset.instanceHeightOffset);
+  sceneAsset.instanceHeightJitter = std::max(
+      value.value("instanceHeightJitter", sceneAsset.instanceHeightJitter), 0.0f);
+  sceneAsset.instanceScatterSeed =
+      value.value("instanceScatterSeed", sceneAsset.instanceScatterSeed);
+  sceneAsset.instancePaintMode =
+      value.value("instancePaintMode", sceneAsset.instancePaintMode);
+  sceneAsset.instanceEraseMode =
+      value.value("instanceEraseMode", sceneAsset.instanceEraseMode);
+  sceneAsset.instanceBrushRadius = std::max(
+      value.value("instanceBrushRadius", sceneAsset.instanceBrushRadius), 0.05f);
   sceneAsset.terrainWireframeVisible = value.value(
       "terrainWireframeVisible", sceneAsset.terrainWireframeVisible);
   sceneAsset.terrainEditMode =

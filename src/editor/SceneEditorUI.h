@@ -48,6 +48,28 @@ private:
     return extension == ".png" || extension == ".jpg" || extension == ".jpeg";
   }
 
+  static std::vector<std::filesystem::path> collectModelAssetPaths() {
+    std::vector<std::filesystem::path> assetPaths;
+    std::error_code errorCode;
+    const std::filesystem::path assetRoot("assets/models");
+    if (std::filesystem::exists(assetRoot, errorCode) &&
+        std::filesystem::is_directory(assetRoot, errorCode)) {
+      for (std::filesystem::recursive_directory_iterator iterator(assetRoot,
+                                                                  errorCode),
+           end;
+           iterator != end && !errorCode; iterator.increment(errorCode)) {
+        if (!iterator->is_regular_file(errorCode) ||
+            !isSupportedAssetPath(iterator->path())) {
+          continue;
+        }
+        assetPaths.push_back(iterator->path().lexically_normal());
+      }
+    }
+
+    std::sort(assetPaths.begin(), assetPaths.end());
+    return assetPaths;
+  }
+
   static std::vector<std::filesystem::path> collectTerrainBrushTexturePaths() {
     std::vector<std::filesystem::path> texturePaths;
     std::error_code errorCode;
@@ -100,6 +122,19 @@ private:
         SceneCameraConfig{.fieldOfViewDegrees = 45.0f,
                           .farPlane = settings.cameraFarPlane},
         "Camera");
+  }
+
+  SceneAssetInstance defaultInstancedObjectAsset() const {
+    SceneAssetInstance sceneAsset = SceneAssetInstance::makeInstancedObject();
+    for (size_t index = 0; index < bindings.sceneAssets.size(); ++index) {
+      if (bindings.sceneAssets[index].kind != SceneAssetKind::Terrain) {
+        continue;
+      }
+      sceneAsset.targetTerrainName =
+          AppSceneController::sceneAssetName(bindings.sceneAssets[index], index);
+      break;
+    }
+    return sceneAsset;
   }
 
   void activateSceneCameraPreviewIfApplicable(int index) {
@@ -193,24 +228,7 @@ private:
   }
 
   void buildAssetAddMenu(SceneEditorUIResult &result) {
-    std::vector<std::filesystem::path> assetPaths;
-    std::error_code errorCode;
-    const std::filesystem::path assetRoot("assets/models");
-    if (std::filesystem::exists(assetRoot, errorCode) &&
-        std::filesystem::is_directory(assetRoot, errorCode)) {
-      for (std::filesystem::recursive_directory_iterator iterator(assetRoot,
-                                                                  errorCode),
-           end;
-           iterator != end && !errorCode; iterator.increment(errorCode)) {
-        if (!iterator->is_regular_file(errorCode) ||
-            !isSupportedAssetPath(iterator->path())) {
-          continue;
-        }
-        assetPaths.push_back(iterator->path().lexically_normal());
-      }
-    }
-
-    std::sort(assetPaths.begin(), assetPaths.end());
+    const std::vector<std::filesystem::path> assetPaths = collectModelAssetPaths();
     if (assetPaths.empty()) {
       ImGui::MenuItem("No model assets found", nullptr, false, false);
       return;
@@ -254,6 +272,11 @@ private:
       if (ImGui::MenuItem("Camera")) {
         addSceneAsset(defaultCameraAsset(bindings.settings));
         result.sceneAssetChanged = true;
+      }
+      if (ImGui::MenuItem("Instanced Object")) {
+        addSceneAsset(defaultInstancedObjectAsset());
+        result.sceneAssetChanged = true;
+        result.sceneGeometryChanged = true;
       }
       ImGui::Separator();
       if (ImGui::MenuItem("Directional Light")) {
@@ -534,6 +557,242 @@ private:
     }
   }
 
+  static std::vector<std::pair<size_t, std::string>>
+  collectTerrainTargets(const std::vector<SceneAssetInstance> &sceneAssets) {
+    std::vector<std::pair<size_t, std::string>> terrainTargets;
+    terrainTargets.reserve(sceneAssets.size());
+    for (size_t index = 0; index < sceneAssets.size(); ++index) {
+      if (sceneAssets[index].kind != SceneAssetKind::Terrain) {
+        continue;
+      }
+      terrainTargets.emplace_back(
+          index, AppSceneController::sceneAssetName(sceneAssets[index], index));
+    }
+    return terrainTargets;
+  }
+
+  bool buildInstancedAssetPicker(SceneAssetInstance &sceneAsset) {
+    const std::vector<std::filesystem::path> assetPaths = collectModelAssetPaths();
+    if (assetPaths.empty()) {
+      ImGui::TextUnformatted("No model assets found in assets/models");
+      return false;
+    }
+
+    int selectedAssetIndex = -1;
+    for (int index = 0; index < static_cast<int>(assetPaths.size()); ++index) {
+      if (assetPaths[static_cast<size_t>(index)].generic_string() ==
+          sceneAsset.assetPath) {
+        selectedAssetIndex = index;
+        break;
+      }
+    }
+
+    const std::string previewLabel =
+        selectedAssetIndex >= 0
+            ? assetPaths[static_cast<size_t>(selectedAssetIndex)].filename().string()
+            : std::string("<select asset>");
+    bool changed = false;
+    if (ImGui::BeginCombo("Instance Asset", previewLabel.c_str())) {
+      for (int index = 0; index < static_cast<int>(assetPaths.size()); ++index) {
+        const bool selected = index == selectedAssetIndex;
+        const std::string label =
+            assetPaths[static_cast<size_t>(index)].filename().string();
+        if (ImGui::Selectable(label.c_str(), selected)) {
+          sceneAsset.assetPath = assetPaths[static_cast<size_t>(index)].generic_string();
+          changed = true;
+        }
+        if (selected) {
+          ImGui::SetItemDefaultFocus();
+        }
+      }
+      ImGui::EndCombo();
+    }
+
+    if (!sceneAsset.assetPath.empty()) {
+      ImGui::TextWrapped("Source: %s", sceneAsset.assetPath.c_str());
+    }
+    return changed;
+  }
+
+  SceneEditorUIResult buildInstancedObjectInspector(size_t sceneAssetIndex,
+                                                    SceneAssetInstance &sceneAsset) {
+    SceneEditorUIResult result;
+    bool liveReprojectRequested = false;
+    ImGui::SeparatorText("Instanced Object");
+    ImGui::Text("Placements: %zu", sceneAsset.instanceTransforms.size());
+    ImGui::TextUnformatted("The root transform is not rendered for this asset.");
+
+    result.sceneGeometryChanged |= buildInstancedAssetPicker(sceneAsset);
+
+    const std::vector<std::pair<size_t, std::string>> terrainTargets =
+        collectTerrainTargets(bindings.sceneAssets);
+    if (terrainTargets.empty()) {
+      ImGui::TextUnformatted("No terrain assets available.");
+    } else {
+      int selectedTerrainIndex = 0;
+      bool targetFound = false;
+      for (int index = 0; index < static_cast<int>(terrainTargets.size()); ++index) {
+        if (terrainTargets[static_cast<size_t>(index)].second ==
+            sceneAsset.targetTerrainName) {
+          selectedTerrainIndex = index;
+          targetFound = true;
+          break;
+        }
+      }
+      const std::string previewLabel =
+          targetFound ? terrainTargets[static_cast<size_t>(selectedTerrainIndex)].second
+                      : terrainTargets.front().second;
+      if (ImGui::BeginCombo("Target Terrain", previewLabel.c_str())) {
+        for (int index = 0; index < static_cast<int>(terrainTargets.size()); ++index) {
+          const bool selected = index == selectedTerrainIndex;
+          const std::string &label =
+              terrainTargets[static_cast<size_t>(index)].second;
+          if (ImGui::Selectable(label.c_str(), selected)) {
+            sceneAsset.targetTerrainName = label;
+            result.sceneAssetChanged = true;
+            liveReprojectRequested = true;
+          }
+          if (selected) {
+            ImGui::SetItemDefaultFocus();
+          }
+        }
+        ImGui::EndCombo();
+      }
+      if (sceneAsset.targetTerrainName.empty()) {
+        sceneAsset.targetTerrainName = terrainTargets.front().second;
+        result.sceneAssetChanged = true;
+      }
+    }
+
+    if (ImGui::DragFloat("Fill Spacing", &sceneAsset.instanceSpacing, 0.05f, 0.05f,
+                         64.0f, "%.2f")) {
+      sceneAsset.instanceSpacing =
+          std::clamp(sceneAsset.instanceSpacing, 0.05f, 64.0f);
+      result.sceneAssetChanged = true;
+    }
+    result.sceneAssetChanged |=
+        ImGui::SliderFloat("Jitter", &sceneAsset.instanceJitter, 0.0f, 1.0f);
+    if (ImGui::DragFloat2("Scale XZ Range", &sceneAsset.instanceScaleRange.x,
+                          0.01f, 0.01f, 16.0f, "%.2f")) {
+      sceneAsset.instanceScaleRange.x =
+          std::max(sceneAsset.instanceScaleRange.x, 0.01f);
+      sceneAsset.instanceScaleRange.y =
+          std::max(sceneAsset.instanceScaleRange.y,
+                   sceneAsset.instanceScaleRange.x);
+      result.sceneAssetChanged = true;
+      liveReprojectRequested = true;
+    }
+    if (ImGui::DragFloat2("Scale Y Range",
+                          &sceneAsset.instanceScaleVerticalRange.x, 0.01f, 0.01f,
+                          16.0f, "%.2f")) {
+      sceneAsset.instanceScaleVerticalRange.x =
+          std::max(sceneAsset.instanceScaleVerticalRange.x, 0.01f);
+      sceneAsset.instanceScaleVerticalRange.y =
+          std::max(sceneAsset.instanceScaleVerticalRange.y,
+                   sceneAsset.instanceScaleVerticalRange.x);
+      result.sceneAssetChanged = true;
+      liveReprojectRequested = true;
+    }
+    const bool alignChanged = ImGui::Checkbox(
+        "Align To Terrain Normal", &sceneAsset.instanceAlignToTerrainNormal);
+    result.sceneAssetChanged |= alignChanged;
+    liveReprojectRequested |= alignChanged;
+    const bool randomYawChanged =
+        ImGui::Checkbox("Random Yaw", &sceneAsset.instanceRandomYaw);
+    result.sceneAssetChanged |= randomYawChanged;
+    liveReprojectRequested |= randomYawChanged;
+    const bool yawRangeChanged = ImGui::SliderFloat(
+        "Yaw Range", &sceneAsset.instanceYawRangeDegrees, 0.0f, 360.0f,
+        "%.0f deg");
+    result.sceneAssetChanged |= yawRangeChanged;
+    liveReprojectRequested |= yawRangeChanged;
+    const bool pitchRangeChanged = ImGui::SliderFloat(
+        "Pitch Range", &sceneAsset.instancePitchRangeDegrees, 0.0f, 180.0f,
+        "%.0f deg");
+    result.sceneAssetChanged |= pitchRangeChanged;
+    liveReprojectRequested |= pitchRangeChanged;
+    const bool rollRangeChanged = ImGui::SliderFloat(
+        "Roll Range", &sceneAsset.instanceRollRangeDegrees, 0.0f, 180.0f,
+        "%.0f deg");
+    result.sceneAssetChanged |= rollRangeChanged;
+    liveReprojectRequested |= rollRangeChanged;
+    result.sceneAssetChanged |= ImGui::SliderFloat(
+        "Max Slope", &sceneAsset.instanceMaxSlopeDegrees, 0.0f, 89.0f,
+        "%.1f deg");
+    const bool heightOffsetChanged = ImGui::DragFloat(
+        "Height Offset", &sceneAsset.instanceHeightOffset, 0.005f, -4.0f, 4.0f,
+        "%.3f");
+    result.sceneAssetChanged |= heightOffsetChanged;
+    liveReprojectRequested |= heightOffsetChanged;
+    const bool heightJitterChanged = ImGui::DragFloat(
+        "Height Jitter", &sceneAsset.instanceHeightJitter, 0.005f, 0.0f, 4.0f,
+        "%.3f");
+    if (heightJitterChanged) {
+      sceneAsset.instanceHeightJitter =
+          std::max(sceneAsset.instanceHeightJitter, 0.0f);
+      result.sceneAssetChanged = true;
+      liveReprojectRequested = true;
+    }
+    int scatterSeed = static_cast<int>(sceneAsset.instanceScatterSeed);
+    if (ImGui::InputInt("Scatter Seed", &scatterSeed)) {
+      sceneAsset.instanceScatterSeed = static_cast<uint32_t>(std::max(scatterSeed, 0));
+      result.sceneAssetChanged = true;
+      liveReprojectRequested = true;
+    }
+    if (ImGui::Checkbox("Paint Mode", &sceneAsset.instancePaintMode)) {
+      if (!sceneAsset.instancePaintMode) {
+        sceneAsset.instanceEraseMode = false;
+      }
+      result.sceneAssetChanged = true;
+    }
+    ImGui::BeginDisabled(!sceneAsset.instancePaintMode);
+    result.sceneAssetChanged |=
+        ImGui::Checkbox("Erase Mode", &sceneAsset.instanceEraseMode);
+    ImGui::EndDisabled();
+    if (ImGui::DragFloat("Brush Radius", &sceneAsset.instanceBrushRadius, 0.05f,
+                         0.05f, 128.0f, "%.2f")) {
+      sceneAsset.instanceBrushRadius =
+          std::clamp(sceneAsset.instanceBrushRadius, 0.05f, 128.0f);
+      result.sceneAssetChanged = true;
+    }
+    if (sceneAsset.instancePaintMode) {
+      ImGui::TextUnformatted(
+          sceneAsset.instanceEraseMode
+              ? "Paint Tool: LMB erase, Up/Down radius, Left/Right toggles paint/erase."
+              : "Paint Tool: LMB paint, Up/Down radius, Left/Right toggles paint/erase.");
+    }
+    ImGui::TextUnformatted(
+        "Scale/orientation/height controls live-update existing placements. Spacing and jitter affect new fill/paint placements.");
+
+    if (liveReprojectRequested && !sceneAsset.instanceTransforms.empty() &&
+        bindings.callbacks.reprojectTerrainInstancedObject != nullptr) {
+      result.sceneAssetChanged |=
+          bindings.callbacks.reprojectTerrainInstancedObject(sceneAssetIndex);
+    }
+
+    const bool canScatter = !sceneAsset.assetPath.empty() && !terrainTargets.empty();
+    ImGui::BeginDisabled(!canScatter);
+    if (ImGui::Button("Fill Terrain") &&
+        bindings.callbacks.fillTerrainWithInstancedObject != nullptr) {
+      result.sceneAssetChanged |=
+          bindings.callbacks.fillTerrainWithInstancedObject(sceneAssetIndex);
+    }
+    ImGui::SameLine(0.0f, 6.0f);
+    if (ImGui::Button("Reproject") &&
+        bindings.callbacks.reprojectTerrainInstancedObject != nullptr) {
+      result.sceneAssetChanged |=
+          bindings.callbacks.reprojectTerrainInstancedObject(sceneAssetIndex);
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine(0.0f, 6.0f);
+    if (ImGui::Button("Clear Instances")) {
+      sceneAsset.instanceTransforms.clear();
+      result.sceneAssetChanged = true;
+    }
+
+    return result;
+  }
+
   SceneEditorUIResult buildObjectInspector() {
     SceneEditorUIResult result;
     auto &settings = bindings.settings;
@@ -557,7 +816,19 @@ private:
       result.sceneGeometryChanged = true;
       return result;
     }
-    if (asset != nullptr) {
+    if (sceneAsset != nullptr &&
+        sceneAsset->kind == SceneAssetKind::InstancedObject) {
+      const SceneEditorUIResult instancedResult =
+          buildInstancedObjectInspector(selectedIndex, *sceneAsset);
+      result.sceneAssetChanged |= instancedResult.sceneAssetChanged;
+      result.sceneGeometryChanged |= instancedResult.sceneGeometryChanged;
+      if (asset != nullptr) {
+        ImGui::SeparatorText("Loaded Asset");
+        const std::string assetPath = asset->path();
+        ImGui::Text("Asset: %s",
+                    std::filesystem::path(assetPath).filename().string().c_str());
+      }
+    } else if (asset != nullptr) {
       const std::string assetPath = asset->path();
       ImGui::Text("Asset: %s",
                   std::filesystem::path(assetPath).filename().string().c_str());
@@ -582,21 +853,27 @@ private:
       } else if (sceneAsset != nullptr &&
                  sceneAsset->kind == SceneAssetKind::Terrain) {
         ImGui::TextUnformatted("Asset: Terrain");
+      } else if (sceneAsset != nullptr &&
+                 sceneAsset->kind == SceneAssetKind::InstancedObject) {
+        ImGui::TextUnformatted("Asset: Instanced Object");
       } else {
         ImGui::TextUnformatted("Asset: Scene Model");
       }
     }
 
-    ImGui::SeparatorText("Transform");
-    bool transformChanged = false;
-    transformChanged |=
-        ImGui::DragFloat3("Position", &object.transform.position.x, 0.01f);
-    transformChanged |= ImGui::SliderFloat3(
-        "Rotation", &object.transform.rotationDegrees.x, -180.0f, 180.0f);
-    transformChanged |=
-        ImGui::DragFloat3("Scale", &object.transform.scale.x, 0.1f, 0.01f,
-                          200.0f);
-    result.sceneAssetChanged |= transformChanged;
+    if (sceneAsset == nullptr ||
+        sceneAsset->kind != SceneAssetKind::InstancedObject) {
+      ImGui::SeparatorText("Transform");
+      bool transformChanged = false;
+      transformChanged |=
+          ImGui::DragFloat3("Position", &object.transform.position.x, 0.01f);
+      transformChanged |= ImGui::SliderFloat3(
+          "Rotation", &object.transform.rotationDegrees.x, -180.0f, 180.0f);
+      transformChanged |=
+          ImGui::DragFloat3("Scale", &object.transform.scale.x, 0.1f, 0.01f,
+                            200.0f);
+      result.sceneAssetChanged |= transformChanged;
+    }
     result.sceneAssetChanged |= buildCameraInspector(selectedIndex, sceneAsset);
 
     const TerrainInspectorResult terrainResult =

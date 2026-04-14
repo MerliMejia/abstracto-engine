@@ -14,6 +14,7 @@ enum class SceneAssetKind {
   Terrain = 1,
   CharacterController = 2,
   Camera = 3,
+  InstancedObject = 4,
 };
 
 struct CharacterControllerConfig {
@@ -63,6 +64,25 @@ struct SceneAssetInstance {
   std::string name;
   SceneTransform transform{};
   bool visible = true;
+  bool renderPrimaryTransform = true;
+  std::vector<SceneTransform> instanceTransforms;
+  std::string targetTerrainName;
+  float instanceSpacing = 1.0f;
+  float instanceJitter = 0.35f;
+  glm::vec2 instanceScaleRange{1.0f, 1.0f};
+  glm::vec2 instanceScaleVerticalRange{1.0f, 1.0f};
+  bool instanceAlignToTerrainNormal = true;
+  bool instanceRandomYaw = true;
+  float instanceYawRangeDegrees = 360.0f;
+  float instancePitchRangeDegrees = 0.0f;
+  float instanceRollRangeDegrees = 0.0f;
+  float instanceMaxSlopeDegrees = 45.0f;
+  float instanceHeightOffset = 0.0f;
+  float instanceHeightJitter = 0.0f;
+  uint32_t instanceScatterSeed = 1;
+  bool instancePaintMode = false;
+  bool instanceEraseMode = false;
+  float instanceBrushRadius = 2.0f;
   TerrainConfig terrainConfig{};
   bool terrainWireframeVisible = false;
   bool terrainEditMode = false;
@@ -86,6 +106,31 @@ struct SceneAssetInstance {
     return SceneAssetInstance{
         .kind = SceneAssetKind::File,
         .assetPath = std::move(assetPathValue),
+    };
+  }
+
+  static SceneAssetInstance
+  makeInstancedObject(std::string nameValue = "Instanced Object") {
+    return SceneAssetInstance{
+        .kind = SceneAssetKind::InstancedObject,
+        .name = std::move(nameValue),
+        .renderPrimaryTransform = false,
+        .instanceSpacing = 1.0f,
+        .instanceJitter = 0.35f,
+        .instanceScaleRange = {0.9f, 1.1f},
+        .instanceScaleVerticalRange = {0.9f, 1.1f},
+        .instanceAlignToTerrainNormal = true,
+        .instanceRandomYaw = true,
+        .instanceYawRangeDegrees = 360.0f,
+        .instancePitchRangeDegrees = 0.0f,
+        .instanceRollRangeDegrees = 0.0f,
+        .instanceMaxSlopeDegrees = 45.0f,
+        .instanceHeightOffset = 0.0f,
+        .instanceHeightJitter = 0.0f,
+        .instanceScatterSeed = 1,
+        .instancePaintMode = false,
+        .instanceEraseMode = false,
+        .instanceBrushRadius = 2.0f,
     };
   }
 

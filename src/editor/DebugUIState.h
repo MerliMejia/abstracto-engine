@@ -96,6 +96,8 @@ struct DefaultDebugUICallbacks {
   std::function<void()> syncProceduralSkySunWithLight;
   std::function<glm::vec3()> currentPrimaryDirectionalLightWorld;
   std::function<bool(size_t)> bucketPaintTerrainTexture;
+  std::function<bool(size_t)> fillTerrainWithInstancedObject;
+  std::function<bool(size_t)> reprojectTerrainInstancedObject;
 };
 
 class DefaultDebugCameraController {

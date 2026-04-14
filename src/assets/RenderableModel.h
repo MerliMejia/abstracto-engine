@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <functional>
 #include <glm/gtc/matrix_inverse.hpp>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -114,28 +115,34 @@ public:
   }
 
   std::vector<RenderItem>
-  buildRenderItems(const RenderPass *targetPass,
+  buildRenderItems(DeviceContext &deviceContext, const RenderPass *targetPass,
                    const std::vector<glm::mat4> &itemModelMatrices = {},
                    int selectedBoneNodeIndex = -1) {
     if (asset == nullptr) {
       throw std::runtime_error("RenderableModel has no loaded asset");
     }
+    if (framesInFlightValue == 0) {
+      throw std::runtime_error("RenderableModel instance buffers are not initialized");
+    }
 
     std::vector<RenderItem> items;
+    const std::vector<glm::mat4> instanceMatrices =
+        itemModelMatrices.empty() ? std::vector<glm::mat4>{glm::mat4(1.0f)}
+                                  : itemModelMatrices;
     const auto &submeshes = asset->submeshes();
     items.reserve(submeshes.empty() ? 1 : submeshes.size());
 
     if (submeshes.empty()) {
-      const glm::mat4 modelMatrix = itemModelMatrices.empty()
-                                        ? glm::mat4(1.0f)
-                                        : itemModelMatrices.front();
+      auto &cachedInstanceBuffer = instanceBufferFor(targetPass, 0);
+      uploadInstanceDataIfChanged(deviceContext, cachedInstanceBuffer,
+                                  framesInFlightValue, instanceMatrices);
       items.push_back(RenderItem{
           .mesh = &geometryMesh,
           .descriptorBindings = &materialSet.bindingsForMaterialIndex(-1),
           .secondaryDescriptorBindings = nullptr,
           .targetPass = targetPass,
-          .modelMatrix = modelMatrix,
-          .modelNormalMatrix = glm::inverseTranspose(modelMatrix),
+          .instanceBuffer = cachedInstanceBuffer.buffer,
+          .instanceCount = static_cast<uint32_t>(instanceMatrices.size()),
           .boneWeightJointIndex = -1,
           .boneWeightDebugEnabled = 0,
           .skinningEnabled = 0,
@@ -146,13 +153,6 @@ public:
     const SkeletonAssetData *runtimeSkeleton = skeletonAsset();
     for (size_t index = 0; index < submeshes.size(); ++index) {
       const auto &submesh = submeshes[index];
-      glm::mat4 modelMatrix = submesh.transform;
-      if (itemModelMatrices.size() == 1) {
-        modelMatrix = itemModelMatrices.front() * submesh.transform;
-      } else if (itemModelMatrices.size() == submeshes.size()) {
-        modelMatrix = itemModelMatrices[index];
-      }
-
       int selectedJointIndex = -1;
       if (selectedBoneNodeIndex >= 0 && runtimeSkeleton != nullptr &&
           submesh.skinIndex >= 0 &&
@@ -169,6 +169,10 @@ public:
         }
       }
 
+      auto &cachedInstanceBuffer = instanceBufferFor(targetPass, index + 1);
+      uploadInstanceDataIfChanged(deviceContext, cachedInstanceBuffer,
+                                  framesInFlightValue, instanceMatrices,
+                                  submesh.transform);
       items.push_back(RenderItem{
           .mesh = &geometryMesh,
           .descriptorBindings =
@@ -180,8 +184,8 @@ public:
           .targetPass = targetPass,
           .indexOffset = submesh.indexOffset,
           .indexCount = submesh.indexCount,
-          .modelMatrix = modelMatrix,
-          .modelNormalMatrix = glm::inverseTranspose(modelMatrix),
+          .instanceBuffer = cachedInstanceBuffer.buffer,
+          .instanceCount = static_cast<uint32_t>(instanceMatrices.size()),
           .boneWeightJointIndex = selectedJointIndex,
           .boneWeightDebugEnabled = selectedBoneNodeIndex >= 0 ? 1 : 0,
           .skinningEnabled =
@@ -350,6 +354,96 @@ private:
     SkinPaletteBindings bindings;
     bool valid = false;
   };
+
+  struct CachedInstanceBuffer {
+    const RenderPass *targetPass = nullptr;
+    size_t slot = 0;
+    std::shared_ptr<FrameInstanceBuffer> buffer;
+    uint64_t sourceHash = 0;
+    size_t sourceCount = 0;
+    bool hasUploadedSource = false;
+  };
+
+  static uint64_t hashBytes(const void *data, size_t byteCount,
+                            uint64_t seed = 1469598103934665603ull) {
+    const auto *bytes = static_cast<const std::uint8_t *>(data);
+    uint64_t hash = seed;
+    for (size_t index = 0; index < byteCount; ++index) {
+      hash ^= static_cast<uint64_t>(bytes[index]);
+      hash *= 1099511628211ull;
+    }
+    return hash;
+  }
+
+  static uint64_t hashInstanceSource(const std::vector<glm::mat4> &instanceMatrices,
+                                     const glm::mat4 &localTransform) {
+    uint64_t hash = hashBytes(&localTransform, sizeof(glm::mat4));
+    for (const auto &instanceMatrix : instanceMatrices) {
+      hash = hashBytes(&instanceMatrix, sizeof(glm::mat4), hash);
+    }
+    return hash;
+  }
+
+  static std::vector<RenderInstanceData>
+  buildInstanceData(const std::vector<glm::mat4> &instanceMatrices,
+                    const glm::mat4 &localTransform = glm::mat4(1.0f)) {
+    std::vector<RenderInstanceData> instances;
+    instances.reserve(instanceMatrices.size());
+    for (const auto &instanceMatrix : instanceMatrices) {
+      const glm::mat4 modelMatrix = instanceMatrix * localTransform;
+      const glm::mat4 modelNormalMatrix = glm::inverseTranspose(modelMatrix);
+      instances.push_back(RenderInstanceData{
+          .model0 = modelMatrix[0],
+          .model1 = modelMatrix[1],
+          .model2 = modelMatrix[2],
+          .model3 = modelMatrix[3],
+          .modelNormal0 = modelNormalMatrix[0],
+          .modelNormal1 = modelNormalMatrix[1],
+          .modelNormal2 = modelNormalMatrix[2],
+          .modelNormal3 = modelNormalMatrix[3],
+      });
+    }
+    return instances;
+  }
+
+  CachedInstanceBuffer &
+  instanceBufferFor(const RenderPass *targetPass, size_t slot) {
+    for (auto &entry : instanceBuffers) {
+      if (entry.targetPass == targetPass && entry.slot == slot) {
+        return entry;
+      }
+    }
+
+    auto buffer = std::make_shared<FrameInstanceBuffer>();
+    instanceBuffers.push_back(CachedInstanceBuffer{
+        .targetPass = targetPass,
+        .slot = slot,
+        .buffer = buffer,
+    });
+    return instanceBuffers.back();
+  }
+
+  void uploadInstanceDataIfChanged(DeviceContext &deviceContext,
+                                   CachedInstanceBuffer &cachedBuffer,
+                                   uint32_t framesInFlight,
+                                   const std::vector<glm::mat4> &instanceMatrices,
+                                   const glm::mat4 &localTransform =
+                                       glm::mat4(1.0f)) {
+    const uint64_t sourceHash =
+        hashInstanceSource(instanceMatrices, localTransform);
+    if (cachedBuffer.hasUploadedSource &&
+        cachedBuffer.sourceHash == sourceHash &&
+        cachedBuffer.sourceCount == instanceMatrices.size()) {
+      return;
+    }
+
+    cachedBuffer.buffer->write(deviceContext, framesInFlight,
+                               buildInstanceData(instanceMatrices,
+                                                 localTransform));
+    cachedBuffer.sourceHash = sourceHash;
+    cachedBuffer.sourceCount = instanceMatrices.size();
+    cachedBuffer.hasUploadedSource = true;
+  }
 
   static GeometryVertex convertVertex(const ImportedGeometryVertex &vertex) {
     return GeometryVertex{
@@ -569,6 +663,7 @@ private:
     frameGeometryUniformsRef = &frameGeometryUniforms;
     samplerRef = &sampler;
     framesInFlightValue = framesInFlight;
+    instanceBuffers.clear();
 
     if (const ImportedSkeletonData *loadedSkeleton = loadedAsset->skeletonAsset();
         loadedSkeleton != nullptr && !loadedSkeleton->nodes.empty()) {
@@ -606,4 +701,5 @@ private:
   std::optional<SkeletonAssetData> runtimeSkeleton;
   ModelAnimationState animationState;
   std::vector<SubmeshSkinPaletteResource> skinPaletteBindings;
+  std::vector<CachedInstanceBuffer> instanceBuffers;
 };

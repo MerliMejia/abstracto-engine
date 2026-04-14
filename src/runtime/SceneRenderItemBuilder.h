@@ -4,6 +4,7 @@
 #include "editor/DebugUIState.h"
 #include "scene/AppSceneController.h"
 #include "passes/ShadowPass.h"
+#include <algorithm>
 #include <array>
 #include <vector>
 
@@ -11,6 +12,8 @@ class SceneRenderItemBuilder {
 public:
   template <size_t SpotShadowPassCount>
   static void rebuild(std::vector<RenderItem> &renderItems,
+                      DeviceContext &deviceContext,
+                      const std::vector<SceneAssetInstance> &sceneAssets,
                       std::vector<RenderableModel> &sceneAssetModels,
                       const DefaultDebugUISettings &settings,
                       const RenderPass *geometryPass,
@@ -23,16 +26,30 @@ public:
     renderItems.clear();
 
     const size_t sceneAssetCount =
-        std::min(sceneAssetModels.size(), settings.sceneObjects.size());
+        std::min({sceneAssets.size(), sceneAssetModels.size(),
+                  settings.sceneObjects.size()});
     for (size_t index = 0; index < sceneAssetCount; ++index) {
       if (!settings.sceneObjects[index].visible ||
           sceneAssetModels[index].modelAsset() == nullptr) {
         continue;
       }
 
-      const std::vector<glm::mat4> objectMatrices = {
-          AppSceneController::sceneTransformMatrix(
-              settings.sceneObjects[index].transform)};
+      std::vector<glm::mat4> objectMatrices;
+      objectMatrices.reserve(sceneAssets[index].instanceTransforms.size() +
+                             (sceneAssets[index].renderPrimaryTransform ? 1u
+                                                                        : 0u));
+      if (sceneAssets[index].renderPrimaryTransform) {
+        objectMatrices.push_back(
+            AppSceneController::sceneTransformMatrix(
+                settings.sceneObjects[index].transform));
+      }
+      for (const auto &instanceTransform : sceneAssets[index].instanceTransforms) {
+        objectMatrices.push_back(
+            AppSceneController::sceneTransformMatrix(instanceTransform));
+      }
+      if (objectMatrices.empty()) {
+        continue;
+      }
       const int selectedBoneIndex =
           geometryPass != nullptr && settings.showBoneWeights &&
                   static_cast<int>(index) == settings.selectedObjectIndex
@@ -40,11 +57,13 @@ public:
               : -1;
 
       appendItems(renderItems, sceneAssetModels[index].buildRenderItems(
+                                   deviceContext,
                                    geometryPass, objectMatrices,
                                    selectedBoneIndex));
 
       if (directionalShadowPass != nullptr) {
         appendItems(renderItems, sceneAssetModels[index].buildRenderItems(
+                                     deviceContext,
                                      directionalShadowPass, objectMatrices));
       }
 
@@ -53,6 +72,7 @@ public:
           continue;
         }
         appendItems(renderItems, sceneAssetModels[index].buildRenderItems(
+                                     deviceContext,
                                      spotShadowPass, objectMatrices));
       }
     }

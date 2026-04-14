@@ -131,6 +131,9 @@ public:
     if (sceneAsset.kind == SceneAssetKind::Camera) {
       return "Camera";
     }
+    if (sceneAsset.kind == SceneAssetKind::InstancedObject) {
+      return "Instanced Object";
+    }
     if (!sceneAsset.assetPath.empty()) {
       const std::string stem =
           std::filesystem::path(sceneAsset.assetPath).stem().string();

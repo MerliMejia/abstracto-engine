@@ -9,6 +9,7 @@
 #include "assets/RenderableModel.h"
 #include "default_engine/DefaultEngineCharacterControllerRuntime.h"
 #include "default_engine/DefaultEngineDebugOverlayRuntime.h"
+#include "default_engine/DefaultEngineInstancedObjectRuntime.h"
 #include "default_engine/DefaultEngineSceneAssetRuntime.h"
 #include "default_engine/DefaultEngineSessionRuntime.h"
 #include "default_engine/DefaultEngineTerrainRuntime.h"
@@ -178,6 +179,17 @@ private:
         .cameraGizmoMesh = cameraGizmoMesh,
         .characterControllerRingMesh = characterControllerRingMesh,
         .characterControllerVerticalLineMesh = characterControllerVerticalLineMesh,
+    };
+  }
+
+  DefaultEngineInstancedObjectRuntimeContext instancedObjectRuntimeContext() {
+    return DefaultEngineInstancedObjectRuntimeContext{
+        .sceneDefinition = sceneDefinition,
+        .sceneAssets = sceneAssets,
+        .debugUiSettings = debugUiSettings,
+        .window = window,
+        .debugOverlayPass = debugOverlayPass,
+        .terrainBrushIndicatorMesh = terrainBrushIndicatorMesh,
     };
   }
 
@@ -525,6 +537,31 @@ private:
                                                                   terrainIndex);
   }
 
+  bool fillInstancedObjectTerrain(size_t instancedObjectIndex) {
+    auto context = instancedObjectRuntimeContext();
+    return DefaultEngineInstancedObjectRuntime::fillTerrain(context,
+                                                            instancedObjectIndex);
+  }
+
+  bool reprojectInstancedObjectTerrain(size_t instancedObjectIndex) {
+    auto context = instancedObjectRuntimeContext();
+    return DefaultEngineInstancedObjectRuntime::reprojectTerrain(
+        context, instancedObjectIndex);
+  }
+
+  bool hasActiveInstancedObjectPaintTool() {
+    auto context = instancedObjectRuntimeContext();
+    return DefaultEngineInstancedObjectRuntime::hasActivePaintTool(context);
+  }
+
+  void updateInstancedObjectTerrainPaintTool(const glm::mat4 &view,
+                                             const glm::mat4 &proj,
+                                             float deltaSeconds) {
+    auto context = instancedObjectRuntimeContext();
+    DefaultEngineInstancedObjectRuntime::updateTerrainPaintTool(
+        context, view, proj, deltaSeconds);
+  }
+
   bool eraseTerrainPaintCanvas(size_t terrainIndex, const glm::vec2 &localPosition,
                                float eraseStrength) {
     auto context = terrainRuntimeContext();
@@ -599,9 +636,9 @@ private:
 
   void rebuildSceneRenderItems() {
     SceneRenderItemBuilder::rebuild(
-        renderItems, sceneAssetModels, debugUiSettings, geometryPass,
-        directionalShadowPass, spotShadowPasses, lightQuad, pbrPass,
-        tonemapPass, debugPresentPass);
+        renderItems, deviceContext(), sceneAssets, sceneAssetModels,
+        debugUiSettings, geometryPass, directionalShadowPass, spotShadowPasses,
+        lightQuad, pbrPass, tonemapPass, debugPresentPass);
   }
 
   static glm::vec3 debugPositionFromMatrix(const glm::mat4 &matrix) {
@@ -851,6 +888,15 @@ private:
                     [this](size_t terrainIndex) {
                       return bucketPaintTerrainTexture(terrainIndex);
                     },
+                .fillTerrainWithInstancedObject =
+                    [this](size_t instancedObjectIndex) {
+                      return fillInstancedObjectTerrain(instancedObjectIndex);
+                    },
+                .reprojectTerrainInstancedObject =
+                    [this](size_t instancedObjectIndex) {
+                      return reprojectInstancedObjectTerrain(
+                          instancedObjectIndex);
+                    },
             },
             AppPerformanceStats::build(
                 smoothedFps, smoothedFrameTimeMs, debugUiSettings,
@@ -968,14 +1014,24 @@ private:
           AppSceneController::sceneObjectsAnchor(debugUiSettings),
           debugUiSettings.lightMarkerScale));
     }
-    updateTerrainSculpting(
-        raycastTerrainFromCursor(geometryUniformData.view, geometryUniformData.proj),
-        deltaSeconds);
+    const bool instancedPaintToolActive = hasActiveInstancedObjectPaintTool();
+    if (instancedPaintToolActive) {
+      updateInstancedObjectTerrainPaintTool(geometryUniformData.view,
+                                            geometryUniformData.proj,
+                                            deltaSeconds);
+    } else {
+      updateTerrainSculpting(
+          raycastTerrainFromCursor(geometryUniformData.view,
+                                   geometryUniformData.proj),
+          deltaSeconds);
+    }
     flushTerrainPaintMaterials();
     updateCharacterControllerTerrainAnchors();
     updateTerrainWireframeOverlay();
-    updateTerrainEditOverlay(geometryUniformData.view, geometryUniformData.proj,
-                             deltaSeconds);
+    if (!instancedPaintToolActive) {
+      updateTerrainEditOverlay(geometryUniformData.view, geometryUniformData.proj,
+                               deltaSeconds);
+    }
     updateSceneCameraOverlay();
     updateCharacterControllerOverlay();
     updateBoneOverlay();

@@ -871,47 +871,94 @@ private:
         ImGui::SliderFloat("Density", &config.density, 0.0f, 16.0f, "%.2f"));
     markGrassEdit(ImGui::SliderFloat("Placement Jitter", &config.placementJitter,
                                      0.0f, 1.0f, "%.2f"));
-    if (ImGui::DragFloat("Chunk Size", &config.chunkSize, 0.1f, 1.0f, 64.0f,
-                         "%.2f")) {
+    const bool chunkSizeChanged =
+        ImGui::DragFloat("Chunk Size", &config.chunkSize, 0.1f, 1.0f, 64.0f,
+                         "%.2f");
+    if (chunkSizeChanged) {
       config.chunkSize = std::clamp(config.chunkSize, 1.0f, 64.0f);
-      markGrassEdit(true);
     }
-    if (ImGui::DragFloat("Draw Distance", &config.drawDistance, 0.25f, 0.0f,
-                         256.0f, "%.2f")) {
+    markGrassEdit(chunkSizeChanged);
+
+    const bool drawDistanceChanged =
+        ImGui::DragFloat("Draw Distance", &config.drawDistance, 0.25f, 0.0f,
+                         256.0f, "%.2f");
+    if (drawDistanceChanged) {
       config.drawDistance = std::clamp(config.drawDistance, 0.0f, 256.0f);
-      markGrassEdit(true, false);
+      config.nearDistance =
+          std::clamp(config.nearDistance, 0.0f, config.drawDistance);
     }
+    markGrassEdit(drawDistanceChanged, false);
+
+    const bool nearDistanceChanged =
+        ImGui::DragFloat("Near Distance", &config.nearDistance, 0.25f, 0.0f,
+                         256.0f, "%.2f");
+    if (nearDistanceChanged) {
+      config.nearDistance =
+          std::clamp(config.nearDistance, 0.0f, config.drawDistance);
+    }
+    markGrassEdit(nearDistanceChanged, false);
+    markGrassEdit(ImGui::SliderFloat("Mid Density Scale",
+                                     &config.midDensityScale, 0.0f, 1.0f,
+                                     "%.2f"),
+                  false);
     markGrassEdit(ImGui::SliderFloat("Max Slope", &config.maxSlopeDegrees, 0.0f,
                                      89.0f, "%.1f deg"));
-    if (ImGui::DragFloat("Clump Radius", &config.clumpRadius, 0.002f, 0.0f,
-                         2.0f, "%.3f")) {
+    const bool clumpRadiusChanged =
+        ImGui::DragFloat("Clump Radius", &config.clumpRadius, 0.002f, 0.0f,
+                         2.0f, "%.3f");
+    if (clumpRadiusChanged) {
       config.clumpRadius = std::clamp(config.clumpRadius, 0.0f, 2.0f);
-      markGrassEdit(true);
     }
-    if (ImGui::DragFloat2("Blade Height Range", &config.bladeHeightRange.x,
-                          0.01f, 0.01f, 8.0f, "%.2f")) {
+    markGrassEdit(clumpRadiusChanged);
+
+    const bool bladeHeightRangeChanged =
+        ImGui::DragFloat2("Blade Height Range", &config.bladeHeightRange.x,
+                          0.01f, 0.01f, 8.0f, "%.2f");
+    if (bladeHeightRangeChanged) {
       config.bladeHeightRange.x = std::max(config.bladeHeightRange.x, 0.01f);
       config.bladeHeightRange.y =
           std::max(config.bladeHeightRange.y, config.bladeHeightRange.x);
-      markGrassEdit(true);
     }
-    if (ImGui::DragFloat2("Blade Width Range", &config.bladeWidthRange.x,
-                          0.001f, 0.001f, 1.0f, "%.3f")) {
+    markGrassEdit(bladeHeightRangeChanged);
+
+    const bool bladeWidthRangeChanged =
+        ImGui::DragFloat2("Blade Width Range", &config.bladeWidthRange.x,
+                          0.001f, 0.001f, 1.0f, "%.3f");
+    if (bladeWidthRangeChanged) {
       config.bladeWidthRange.x = std::max(config.bladeWidthRange.x, 0.001f);
       config.bladeWidthRange.y =
           std::max(config.bladeWidthRange.y, config.bladeWidthRange.x);
-      markGrassEdit(true);
     }
+    markGrassEdit(bladeWidthRangeChanged);
+
     int bladesPerClump = static_cast<int>(config.bladesPerClump);
-    if (ImGui::SliderInt("Blades Per Clump", &bladesPerClump, 1, 12)) {
+    const bool bladesPerClumpChanged =
+        ImGui::SliderInt("Blades Per Clump", &bladesPerClump, 1, 12);
+    if (bladesPerClumpChanged) {
       config.bladesPerClump = static_cast<uint32_t>(std::max(bladesPerClump, 1));
-      markGrassEdit(true);
+      config.midBladesPerClump =
+          std::min(config.midBladesPerClump, config.bladesPerClump);
     }
+    markGrassEdit(bladesPerClumpChanged);
+
+    int midBladesPerClump = static_cast<int>(config.midBladesPerClump);
+    const int maxMidBladesPerClump =
+        static_cast<int>(std::max(config.bladesPerClump, 1u));
+    const bool midBladesPerClumpChanged =
+        ImGui::SliderInt("Mid Blades Per Clump", &midBladesPerClump, 1,
+                         maxMidBladesPerClump);
+    if (midBladesPerClumpChanged) {
+      config.midBladesPerClump =
+          static_cast<uint32_t>(std::max(midBladesPerClump, 1));
+    }
+    markGrassEdit(midBladesPerClumpChanged);
+
     int scatterSeed = static_cast<int>(config.scatterSeed);
-    if (ImGui::InputInt("Scatter Seed", &scatterSeed)) {
+    const bool scatterSeedChanged = ImGui::InputInt("Scatter Seed", &scatterSeed);
+    if (scatterSeedChanged) {
       config.scatterSeed = static_cast<uint32_t>(std::max(scatterSeed, 0));
-      markGrassEdit(true);
     }
+    markGrassEdit(scatterSeedChanged);
     markGrassEdit(ImGui::SliderFloat("Random Lean", &config.randomLeanDegrees, 0.0f,
                                      80.0f, "%.1f deg"));
 
@@ -1116,12 +1163,17 @@ private:
     ImGui::TextUnformatted("Press ESC to return to the debug camera.");
 
     if (ImGui::Button("Match Debug Camera")) {
-      sceneAsset->transform =
+      const SceneTransform debugCameraTransform =
           DefaultDebugCameraController::sceneTransformFromSettings(settings);
+      sceneAsset->transform = debugCameraTransform;
+      if (sceneAssetIndex < settings.sceneObjects.size()) {
+        settings.sceneObjects[sceneAssetIndex].transform = debugCameraTransform;
+      }
       sceneAsset->cameraConfig.farPlane = settings.cameraFarPlane;
       changed = true;
     }
 
+    changed |= ImGui::Checkbox("Free", &sceneAsset->cameraConfig.free);
     changed |= ImGui::SliderFloat("Field Of View",
                                   &sceneAsset->cameraConfig.fieldOfViewDegrees,
                                   10.0f, 120.0f, "%.1f deg");

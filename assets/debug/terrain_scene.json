@@ -6,13 +6,13 @@
   "cameraFarPlane": 256.20001220703125,
   "cameraLookSensitivity": 0.0035000001080334187,
   "cameraMoveSpeed": 10.0,
-  "cameraPitchRadians": -0.17551289498806,
+  "cameraPitchRadians": -0.34560543298721313,
   "cameraPosition": [
-    36.452335357666016,
-    6.339158058166504,
-    -59.24748611450195
+    34.76244354248047,
+    8.932883262634277,
+    -63.278438568115234
   ],
-  "cameraYawRadians": -3.740550994873047,
+  "cameraYawRadians": -3.4419314861297607,
   "dielectricSpecularScale": 1.2929999828338623,
   "directionalShadowExtent": 13.329999923706055,
   "directionalShadowFarPlane": 24.0,
@@ -23,7 +23,7 @@
   "environmentRotationRadians": 0.33161255717277527,
   "environmentSpecularWeight": 2.734999895095825,
   "exposure": 4.0,
-  "gamma": 1.312999963760376,
+  "gamma": 1.1269999742507935,
   "iblBakeSettings": {
     "brdfResolution": 256,
     "brdfSamples": 128,
@@ -29852,7 +29852,8 @@
       "assetPath": "",
       "cameraConfig": {
         "farPlane": 256.20001220703125,
-        "fieldOfViewDegrees": 45.0
+        "fieldOfViewDegrees": 84.80000305175781,
+        "free": true
       },
       "instanceAlignToTerrainNormal": true,
       "instanceBrushRadius": 2.0,
@@ -29879,14 +29880,14 @@
       "kind": 3,
       "name": "Camera",
       "position": [
-        35.16600036621094,
-        6.744546413421631,
-        -58.87186050415039
+        30.84225845336914,
+        6.927894115447998,
+        -56.98677444458008
       ],
       "renderPrimaryTransform": true,
       "rotationDegrees": [
-        -16.695663452148438,
-        148.06661987304688,
+        -8.555331230163574,
+        147.43798828125,
         0.0
       ],
       "scale": [
@@ -29974,21 +29975,24 @@
       "terrainEditMode": false,
       "terrainGrassConfig": {
         "bladeHeightRange": [
-          0.11999999731779099,
-          0.3700000047683716
+          0.28999999165534973,
+          0.49000000953674316
         ],
         "bladeWidthRange": [
-          0.02500000037252903,
-          0.05000000074505806
+          0.0020000000949949026,
+          0.026000000536441803
         ],
         "bladesPerClump": 8,
-        "chunkSize": 6.0,
-        "clumpRadius": 0.4959999918937683,
-        "density": 8.09000015258789,
-        "drawDistance": 140.75,
+        "chunkSize": 8.0,
+        "clumpRadius": 2.0,
+        "density": 0.6700000166893005,
+        "drawDistance": 148.75,
         "maxSlopeDegrees": 89.0,
+        "midBladesPerClump": 1,
+        "midDensityScale": 0.2800000011920929,
+        "nearDistance": 60.0,
         "placementJitter": 0.8399999737739563,
-        "randomLeanDegrees": 14.0,
+        "randomLeanDegrees": 26.600000381469727,
         "scatterSeed": 3
       },
       "terrainPaintCanvasPath": "",
@@ -30040,13 +30044,13 @@
     {
       "name": "Camera",
       "position": [
-        35.16600036621094,
-        6.744546413421631,
-        -58.87186050415039
+        30.84225845336914,
+        6.927894115447998,
+        -56.98677444458008
       ],
       "rotationDegrees": [
-        -16.695663452148438,
-        148.06661987304688,
+        -8.555331230163574,
+        147.43798828125,
         0.0
       ],
       "scale": [
@@ -30081,11 +30085,11 @@
   "selectedBoneIndex": -1,
   "selectedLightIndex": -1,
   "selectedMaterialIndex": 0,
-  "selectedObjectIndex": 3,
-  "shadowsEnabled": true,
+  "selectedObjectIndex": 2,
+  "shadowsEnabled": false,
   "showBoneWeights": false,
   "skyboxVisible": true,
   "syncSkySunToLight": true,
   "tonemapOperator": 2,
-  "whitePoint": 4.000999927520752
+  "whitePoint": 3.0179998874664307
 }

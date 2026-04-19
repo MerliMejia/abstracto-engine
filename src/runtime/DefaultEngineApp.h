@@ -90,6 +90,7 @@ private:
   std::vector<SceneAssetInstance> sceneAssets;
   std::vector<RenderableModel> sceneAssetModels;
   std::vector<DefaultEngineTerrainGrassChunkState> terrainGrassChunks;
+  std::vector<DefaultEngineTerrainGrassSharedModelState> terrainGrassModels;
   RenderableModel emptyEditorModel;
   FullscreenMesh lightQuad;
   TypedMesh<Vertex> pointLightMarkerMesh;
@@ -105,6 +106,7 @@ private:
   FrameGeometryUniforms frameGeometryUniforms;
   Sampler sampler;
   ImageBasedLighting imageBasedLighting;
+  bool imageBasedLightingLoadedFromBake = false;
   GeometryPass *geometryPass = nullptr;
   ShadowPass *directionalShadowPass = nullptr;
   std::array<ShadowPass *, DEFAULT_ENGINE_MAX_SPOT_SHADOW_PASSES>
@@ -211,6 +213,7 @@ private:
         .sceneAssets = sceneAssets,
         .debugUiSettings = debugUiSettings,
         .grassChunks = terrainGrassChunks,
+        .sharedModels = terrainGrassModels,
         .backend = backend,
         .frameGeometryUniforms = frameGeometryUniforms,
         .sampler = sampler,
@@ -416,6 +419,53 @@ private:
     };
   }
 
+  bool selectedSceneCameraFreeActive() {
+    if (!DefaultDebugCameraController::sceneCameraPreviewActive(
+            debugUiSettings)) {
+      return false;
+    }
+    const int sceneCameraIndex = debugUiSettings.viewportSceneCameraIndex;
+    if (sceneCameraIndex < 0 ||
+        sceneCameraIndex != debugUiSettings.selectedObjectIndex ||
+        static_cast<size_t>(sceneCameraIndex) >= sceneAssets.size()) {
+      return false;
+    }
+    const SceneAssetInstance &sceneAsset =
+        sceneAssets[static_cast<size_t>(sceneCameraIndex)];
+    return sceneAsset.kind == SceneAssetKind::Camera &&
+           sceneAsset.cameraConfig.free;
+  }
+
+  void updateSelectedSceneCameraFree(float deltaSeconds) {
+    if (!selectedSceneCameraFreeActive()) {
+      return;
+    }
+
+    const size_t sceneCameraIndex =
+        static_cast<size_t>(debugUiSettings.viewportSceneCameraIndex);
+    if (sceneCameraIndex >= debugUiSettings.sceneObjects.size()) {
+      return;
+    }
+
+    SceneTransform &transform =
+        debugUiSettings.sceneObjects[sceneCameraIndex].transform;
+    float yawRadians = 0.0f;
+    float pitchRadians = 0.0f;
+    DefaultDebugCameraController::anglesFromForward(
+        AppSceneController::forwardFromSceneTransform(transform), yawRadians,
+        pitchRadians);
+
+    glm::vec3 position = transform.position;
+    DefaultDebugCameraController::updatePose(
+        debugUiSettings, position, yawRadians, pitchRadians, deltaSeconds,
+        window.handle());
+    transform =
+        DefaultDebugCameraController::sceneTransformFromPose(position, yawRadians,
+                                                            pitchRadians);
+    sceneAssets[sceneCameraIndex].transform = transform;
+    sceneDefinition.assets = sceneAssets;
+  }
+
   void updateSceneCameraShortcuts() {
     const bool escapePressed =
         glfwGetKey(window.handle(), GLFW_KEY_ESCAPE) == GLFW_PRESS;
@@ -436,11 +486,11 @@ private:
       }
       total += static_cast<uint32_t>(sceneAssetModel.materials().size());
     }
-    for (const auto &grassChunk : terrainGrassChunks) {
-      if (grassChunk.model.modelAsset() == nullptr) {
+    for (const auto &grassModel : terrainGrassModels) {
+      if (grassModel.model.modelAsset() == nullptr) {
         continue;
       }
-      total += static_cast<uint32_t>(grassChunk.model.materials().size());
+      total += static_cast<uint32_t>(grassModel.model.materials().size());
     }
     return total;
   }
@@ -454,8 +504,8 @@ private:
       }
       total += static_cast<uint32_t>(asset->mesh().vertexCount());
     }
-    for (const auto &grassChunk : terrainGrassChunks) {
-      const ModelAsset *asset = grassChunk.model.modelAsset();
+    for (const auto &grassModel : terrainGrassModels) {
+      const ModelAsset *asset = grassModel.model.modelAsset();
       if (asset == nullptr) {
         continue;
       }
@@ -473,8 +523,8 @@ private:
       }
       total += static_cast<uint32_t>(asset->mesh().indexData().size() / 3);
     }
-    for (const auto &grassChunk : terrainGrassChunks) {
-      const ModelAsset *asset = grassChunk.model.modelAsset();
+    for (const auto &grassModel : terrainGrassModels) {
+      const ModelAsset *asset = grassModel.model.modelAsset();
       if (asset == nullptr) {
         continue;
       }
@@ -506,6 +556,40 @@ private:
       debugUiSettings.iblBakeSettings.environmentHdrPath =
           resolvedDefaultEnvironmentHdrPath(engineConfig);
     }
+  }
+
+  bool shouldUseBakedImageBasedLighting() const {
+    return debugUiSettings.iblEnabled || debugUiSettings.skyboxVisible;
+  }
+
+  void rebuildImageBasedLightingResources(bool forceBake) {
+    if (forceBake || shouldUseBakedImageBasedLighting()) {
+      imageBasedLighting.rebuild(deviceContext(), commandContext(),
+                                 debugUiSettings.iblBakeSettings);
+      imageBasedLightingLoadedFromBake = true;
+    } else {
+      imageBasedLighting.createFallback(deviceContext(), commandContext(),
+                                        debugUiSettings.iblBakeSettings);
+      imageBasedLightingLoadedFromBake = false;
+    }
+
+    if (pbrPass != nullptr) {
+      pbrPass->setImageBasedLighting(imageBasedLighting);
+    }
+  }
+
+  void ensureImageBasedLightingLoadedForActiveEnvironment() {
+    if (imageBasedLightingLoadedFromBake ||
+        !shouldUseBakedImageBasedLighting()) {
+      return;
+    }
+
+    backend.waitIdle();
+    if (debugUiSettings.syncSkySunToLight) {
+      syncProceduralSkySunWithLight();
+    }
+    rebuildImageBasedLightingResources(true);
+    renderer.recreate(deviceContext(), swapchainContext());
   }
 
   void syncSceneObjectsWithAssets() {
@@ -786,11 +870,14 @@ private:
   }
 
   void applyLoadedDebugSettings() {
-    auto context = sessionRuntimeContext();
-    DefaultEngineSessionRuntime::applyLoadedDebugSettings(
-        context, [this]() { ensureDefaultEnvironmentPath(); },
-        [this]() { syncProceduralSkySunWithLight(); },
-        [this]() { reloadSceneAssets(); });
+    ensureDefaultEnvironmentPath();
+    backend.waitIdle();
+    if (debugUiSettings.syncSkySunToLight) {
+      syncProceduralSkySunWithLight();
+    }
+    rebuildImageBasedLightingResources(false);
+    renderer.recreate(deviceContext(), swapchainContext());
+    reloadSceneAssets();
   }
 
   void initVulkan() {
@@ -855,8 +942,7 @@ private:
     if (debugUiSettings.syncSkySunToLight) {
       syncProceduralSkySunWithLight();
     }
-    imageBasedLighting.create(deviceContext(), commandContext(),
-                              debugUiSettings.iblBakeSettings);
+    rebuildImageBasedLightingResources(false);
     AppRendererSetup::registerMainPasses(
         renderer, geometryPass, pbrPass, tonemapPass, debugPresentPass,
         debugOverlayPass, imguiPass, window, backend.instance(),
@@ -988,17 +1074,19 @@ private:
         if (debugUiSettings.syncSkySunToLight) {
           syncProceduralSkySunWithLight();
         }
-        imageBasedLighting.rebuild(deviceContext(), commandContext(),
-                                   debugUiSettings.iblBakeSettings);
+        rebuildImageBasedLightingResources(true);
         renderer.recreate(deviceContext(), swapchainContext());
       }
     }
+    ensureImageBasedLightingLoadedForActiveEnvironment();
 
     DefaultDebugCameraController cameraController =
         DefaultDebugCameraController::create(debugUiSettings);
     updateSceneCameraShortcuts();
-    if (!DefaultDebugCameraController::sceneCameraPreviewActive(
-            debugUiSettings)) {
+    if (selectedSceneCameraFreeActive()) {
+      updateSelectedSceneCameraFree(deltaSeconds);
+    } else if (!DefaultDebugCameraController::sceneCameraPreviewActive(
+                   debugUiSettings)) {
       cameraController.update(deltaSeconds, window.handle());
     }
     for (auto &sceneAssetModel : sceneAssetModels) {

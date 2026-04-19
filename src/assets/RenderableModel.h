@@ -117,7 +117,9 @@ public:
   std::vector<RenderItem>
   buildRenderItems(DeviceContext &deviceContext, const RenderPass *targetPass,
                    const std::vector<glm::mat4> &itemModelMatrices = {},
-                   int selectedBoneNodeIndex = -1) {
+                   int selectedBoneNodeIndex = -1,
+                   size_t instanceSlotOffset = 0,
+                   bool instanceDataChanged = true) {
     if (asset == nullptr) {
       throw std::runtime_error("RenderableModel has no loaded asset");
     }
@@ -126,23 +128,29 @@ public:
     }
 
     std::vector<RenderItem> items;
-    const std::vector<glm::mat4> instanceMatrices =
-        itemModelMatrices.empty() ? std::vector<glm::mat4>{glm::mat4(1.0f)}
-                                  : itemModelMatrices;
+    std::vector<glm::mat4> defaultInstanceMatrices;
+    const std::vector<glm::mat4> *instanceMatrices = &itemModelMatrices;
+    if (itemModelMatrices.empty()) {
+      defaultInstanceMatrices.push_back(glm::mat4(1.0f));
+      instanceMatrices = &defaultInstanceMatrices;
+    }
     const auto &submeshes = asset->submeshes();
     items.reserve(submeshes.empty() ? 1 : submeshes.size());
 
     if (submeshes.empty()) {
-      auto &cachedInstanceBuffer = instanceBufferFor(targetPass, 0);
-      uploadInstanceDataIfChanged(deviceContext, cachedInstanceBuffer,
-                                  framesInFlightValue, instanceMatrices);
+      auto &cachedInstanceBuffer =
+          instanceBufferFor(targetPass, instanceSlotOffset);
+      if (instanceDataChanged || !cachedInstanceBuffer.hasUploadedSource) {
+        uploadInstanceDataIfChanged(deviceContext, cachedInstanceBuffer,
+                                    framesInFlightValue, *instanceMatrices);
+      }
       items.push_back(RenderItem{
           .mesh = &geometryMesh,
           .descriptorBindings = &materialSet.bindingsForMaterialIndex(-1),
           .secondaryDescriptorBindings = nullptr,
           .targetPass = targetPass,
           .instanceBuffer = cachedInstanceBuffer.buffer,
-          .instanceCount = static_cast<uint32_t>(instanceMatrices.size()),
+          .instanceCount = static_cast<uint32_t>(instanceMatrices->size()),
           .boneWeightJointIndex = -1,
           .boneWeightDebugEnabled = 0,
           .skinningEnabled = 0,
@@ -169,10 +177,13 @@ public:
         }
       }
 
-      auto &cachedInstanceBuffer = instanceBufferFor(targetPass, index + 1);
-      uploadInstanceDataIfChanged(deviceContext, cachedInstanceBuffer,
-                                  framesInFlightValue, instanceMatrices,
-                                  submesh.transform);
+      auto &cachedInstanceBuffer =
+          instanceBufferFor(targetPass, instanceSlotOffset + index + 1);
+      if (instanceDataChanged || !cachedInstanceBuffer.hasUploadedSource) {
+        uploadInstanceDataIfChanged(deviceContext, cachedInstanceBuffer,
+                                    framesInFlightValue, *instanceMatrices,
+                                    submesh.transform);
+      }
       items.push_back(RenderItem{
           .mesh = &geometryMesh,
           .descriptorBindings =
@@ -185,7 +196,7 @@ public:
           .indexOffset = submesh.indexOffset,
           .indexCount = submesh.indexCount,
           .instanceBuffer = cachedInstanceBuffer.buffer,
-          .instanceCount = static_cast<uint32_t>(instanceMatrices.size()),
+          .instanceCount = static_cast<uint32_t>(instanceMatrices->size()),
           .boneWeightJointIndex = selectedJointIndex,
           .boneWeightDebugEnabled = selectedBoneNodeIndex >= 0 ? 1 : 0,
           .skinningEnabled =

@@ -40,6 +40,7 @@ struct CharacterControllerState {
 struct SceneCameraConfig {
   float fieldOfViewDegrees = 45.0f;
   float farPlane = 100.0f;
+  bool free = false;
 };
 
 struct TerrainGrassConfig {
@@ -47,11 +48,14 @@ struct TerrainGrassConfig {
   float placementJitter = 0.85f;
   float chunkSize = 6.0f;
   float drawDistance = 32.0f;
+  float nearDistance = 36.0f;
+  float midDensityScale = 0.18f;
   float maxSlopeDegrees = 45.0f;
   float clumpRadius = 0.12f;
   glm::vec2 bladeHeightRange{0.35f, 0.7f};
   glm::vec2 bladeWidthRange{0.025f, 0.05f};
   uint32_t bladesPerClump = 4;
+  uint32_t midBladesPerClump = 2;
   uint32_t scatterSeed = 1;
   float randomLeanDegrees = 14.0f;
 };

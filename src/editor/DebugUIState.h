@@ -180,6 +180,13 @@ public:
   glm::vec3 currentForward() const { return forwardFromSettings(settings); }
 
   void update(float deltaSeconds, GLFWwindow *windowHandle) {
+    updatePose(settings, settings.cameraPosition, settings.cameraYawRadians,
+               settings.cameraPitchRadians, deltaSeconds, windowHandle);
+  }
+
+  static void updatePose(DefaultDebugUISettings &settings, glm::vec3 &position,
+                         float &yawRadians, float &pitchRadians,
+                         float deltaSeconds, GLFWwindow *windowHandle) {
     ImGuiIO &io = ImGui::GetIO();
 
     if (glfwGetMouseButton(windowHandle, GLFW_MOUSE_BUTTON_RIGHT) ==
@@ -198,13 +205,12 @@ public:
         settings.cameraLastCursorX = cursorX;
         settings.cameraLastCursorY = cursorY;
 
-        settings.cameraYawRadians +=
+        yawRadians +=
             static_cast<float>(deltaX) * settings.cameraLookSensitivity;
-        settings.cameraPitchRadians -=
+        pitchRadians -=
             static_cast<float>(deltaY) * settings.cameraLookSensitivity;
-        settings.cameraPitchRadians =
-            glm::clamp(settings.cameraPitchRadians, glm::radians(-89.0f),
-                       glm::radians(89.0f));
+        pitchRadians = glm::clamp(pitchRadians, glm::radians(-89.0f),
+                                  glm::radians(89.0f));
       }
     } else {
       settings.cameraLookActive = false;
@@ -214,29 +220,29 @@ public:
       return;
     }
 
-    const glm::vec3 forward = currentForward();
+    const glm::vec3 forward = forwardFromAngles(yawRadians, pitchRadians);
     const glm::vec3 worldUp(0.0f, 1.0f, 0.0f);
     const glm::vec3 right = glm::normalize(glm::cross(forward, worldUp));
     const glm::vec3 up = glm::normalize(glm::cross(right, forward));
     const float moveStep = settings.cameraMoveSpeed * deltaSeconds;
 
     if (glfwGetKey(windowHandle, GLFW_KEY_W) == GLFW_PRESS) {
-      settings.cameraPosition += forward * moveStep;
+      position += forward * moveStep;
     }
     if (glfwGetKey(windowHandle, GLFW_KEY_S) == GLFW_PRESS) {
-      settings.cameraPosition -= forward * moveStep;
+      position -= forward * moveStep;
     }
     if (glfwGetKey(windowHandle, GLFW_KEY_D) == GLFW_PRESS) {
-      settings.cameraPosition += right * moveStep;
+      position += right * moveStep;
     }
     if (glfwGetKey(windowHandle, GLFW_KEY_A) == GLFW_PRESS) {
-      settings.cameraPosition -= right * moveStep;
+      position -= right * moveStep;
     }
     if (glfwGetKey(windowHandle, GLFW_KEY_E) == GLFW_PRESS) {
-      settings.cameraPosition += up * moveStep;
+      position += up * moveStep;
     }
     if (glfwGetKey(windowHandle, GLFW_KEY_Q) == GLFW_PRESS) {
-      settings.cameraPosition -= up * moveStep;
+      position -= up * moveStep;
     }
   }
 

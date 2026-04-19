@@ -2,6 +2,7 @@
 
 #include "DebugUIState.h"
 #include "scene/SceneDefinition.h"
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <json.hpp>
@@ -234,6 +235,7 @@ static inline json cameraConfigToJson(const SceneCameraConfig &config) {
   return {
       {"fieldOfViewDegrees", config.fieldOfViewDegrees},
       {"farPlane", config.farPlane},
+      {"free", config.free},
   };
 }
 
@@ -243,6 +245,7 @@ static inline SceneCameraConfig cameraConfigFromJson(const json &value) {
       value.value("fieldOfViewDegrees", config.fieldOfViewDegrees), 10.0f,
       120.0f);
   config.farPlane = std::max(value.value("farPlane", config.farPlane), 1.0f);
+  config.free = value.value("free", config.free);
   return config;
 }
 
@@ -252,6 +255,8 @@ static inline json terrainGrassConfigToJson(const TerrainGrassConfig &config) {
       {"placementJitter", config.placementJitter},
       {"chunkSize", config.chunkSize},
       {"drawDistance", config.drawDistance},
+      {"nearDistance", config.nearDistance},
+      {"midDensityScale", config.midDensityScale},
       {"maxSlopeDegrees", config.maxSlopeDegrees},
       {"clumpRadius", config.clumpRadius},
       {"bladeHeightRange",
@@ -259,6 +264,7 @@ static inline json terrainGrassConfigToJson(const TerrainGrassConfig &config) {
       {"bladeWidthRange",
        json::array({config.bladeWidthRange.x, config.bladeWidthRange.y})},
       {"bladesPerClump", config.bladesPerClump},
+      {"midBladesPerClump", config.midBladesPerClump},
       {"scatterSeed", config.scatterSeed},
       {"randomLeanDegrees", config.randomLeanDegrees},
   };
@@ -272,6 +278,11 @@ static inline TerrainGrassConfig terrainGrassConfigFromJson(const json &value) {
   config.chunkSize = std::max(value.value("chunkSize", config.chunkSize), 1.0f);
   config.drawDistance =
       std::max(value.value("drawDistance", config.drawDistance), 0.0f);
+  config.nearDistance = glm::clamp(
+      value.value("nearDistance", config.nearDistance), 0.0f,
+      config.drawDistance);
+  config.midDensityScale = glm::clamp(
+      value.value("midDensityScale", config.midDensityScale), 0.0f, 1.0f);
   config.maxSlopeDegrees = glm::clamp(
       value.value("maxSlopeDegrees", config.maxSlopeDegrees), 0.0f, 89.9f);
   config.clumpRadius =
@@ -298,6 +309,10 @@ static inline TerrainGrassConfig terrainGrassConfigFromJson(const json &value) {
       std::max(config.bladeWidthRange.y, config.bladeWidthRange.x);
   config.bladesPerClump = std::max(
       value.value("bladesPerClump", config.bladesPerClump), 1u);
+  config.midBladesPerClump = std::max(
+      value.value("midBladesPerClump", config.midBladesPerClump), 1u);
+  config.midBladesPerClump =
+      std::min(config.midBladesPerClump, config.bladesPerClump);
   config.scatterSeed = value.value("scatterSeed", config.scatterSeed);
   config.randomLeanDegrees = glm::clamp(
       value.value("randomLeanDegrees", config.randomLeanDegrees), 0.0f, 80.0f);

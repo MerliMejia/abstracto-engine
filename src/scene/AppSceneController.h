@@ -134,6 +134,9 @@ public:
     if (sceneAsset.kind == SceneAssetKind::InstancedObject) {
       return "Instanced Object";
     }
+    if (sceneAsset.kind == SceneAssetKind::TerrainGrass) {
+      return "Terrain Grass";
+    }
     if (!sceneAsset.assetPath.empty()) {
       const std::string stem =
           std::filesystem::path(sceneAsset.assetPath).stem().string();

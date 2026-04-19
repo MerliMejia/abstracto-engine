@@ -12,6 +12,7 @@
 #include "default_engine/DefaultEngineInstancedObjectRuntime.h"
 #include "default_engine/DefaultEngineSceneAssetRuntime.h"
 #include "default_engine/DefaultEngineSessionRuntime.h"
+#include "default_engine/DefaultEngineTerrainGrassRuntime.h"
 #include "default_engine/DefaultEngineTerrainRuntime.h"
 #include "editor/DefaultDebugUI.h"
 #include "scene/AppSceneController.h"
@@ -88,6 +89,7 @@ private:
 
   std::vector<SceneAssetInstance> sceneAssets;
   std::vector<RenderableModel> sceneAssetModels;
+  std::vector<DefaultEngineTerrainGrassChunkState> terrainGrassChunks;
   RenderableModel emptyEditorModel;
   FullscreenMesh lightQuad;
   TypedMesh<Vertex> pointLightMarkerMesh;
@@ -201,6 +203,17 @@ private:
         .backend = backend,
         .imageBasedLighting = imageBasedLighting,
         .renderer = renderer,
+    };
+  }
+
+  DefaultEngineTerrainGrassRuntimeContext terrainGrassRuntimeContext() {
+    return DefaultEngineTerrainGrassRuntimeContext{
+        .sceneAssets = sceneAssets,
+        .debugUiSettings = debugUiSettings,
+        .grassChunks = terrainGrassChunks,
+        .backend = backend,
+        .frameGeometryUniforms = frameGeometryUniforms,
+        .sampler = sampler,
     };
   }
 
@@ -423,6 +436,12 @@ private:
       }
       total += static_cast<uint32_t>(sceneAssetModel.materials().size());
     }
+    for (const auto &grassChunk : terrainGrassChunks) {
+      if (grassChunk.model.modelAsset() == nullptr) {
+        continue;
+      }
+      total += static_cast<uint32_t>(grassChunk.model.materials().size());
+    }
     return total;
   }
 
@@ -435,6 +454,13 @@ private:
       }
       total += static_cast<uint32_t>(asset->mesh().vertexCount());
     }
+    for (const auto &grassChunk : terrainGrassChunks) {
+      const ModelAsset *asset = grassChunk.model.modelAsset();
+      if (asset == nullptr) {
+        continue;
+      }
+      total += static_cast<uint32_t>(asset->mesh().vertexCount());
+    }
     return total;
   }
 
@@ -442,6 +468,13 @@ private:
     uint32_t total = 0;
     for (const auto &sceneAssetModel : sceneAssetModels) {
       const ModelAsset *asset = sceneAssetModel.modelAsset();
+      if (asset == nullptr) {
+        continue;
+      }
+      total += static_cast<uint32_t>(asset->mesh().indexData().size() / 3);
+    }
+    for (const auto &grassChunk : terrainGrassChunks) {
+      const ModelAsset *asset = grassChunk.model.modelAsset();
       if (asset == nullptr) {
         continue;
       }
@@ -611,12 +644,21 @@ private:
         sceneSecondaryDescriptorSetLayout());
   }
 
+  void reloadTerrainGrassChunks() {
+    auto context = terrainGrassRuntimeContext();
+    DefaultEngineTerrainGrassRuntime::reloadGrass(context,
+                                                  sceneDescriptorSetLayout());
+  }
+
   void reloadTerrainAsset(size_t terrainIndex) {
     auto context = sceneAssetRuntimeContext();
     DefaultEngineSceneAssetRuntime::reloadTerrainAsset(
         context, terrainIndex, sceneDescriptorSetLayout(),
         sceneSecondaryDescriptorSetLayout(),
-        [this]() { rebuildSceneRenderItems(); });
+        [this]() {
+          reloadTerrainGrassChunks();
+          rebuildSceneRenderItems();
+        });
   }
 
   void updateTerrainSculpting(const std::optional<TerrainEditHit> &hit,
@@ -639,6 +681,11 @@ private:
         renderItems, deviceContext(), sceneAssets, sceneAssetModels,
         debugUiSettings, geometryPass, directionalShadowPass, spotShadowPasses,
         lightQuad, pbrPass, tonemapPass, debugPresentPass);
+    auto grassContext = terrainGrassRuntimeContext();
+    const ViewportCameraState viewportCamera = currentViewportCameraState();
+    DefaultEngineTerrainGrassRuntime::appendVisibleRenderItems(
+        grassContext, renderItems, deviceContext(), geometryPass,
+        viewportCamera.position, viewportCamera.forward);
   }
 
   static glm::vec3 debugPositionFromMatrix(const glm::mat4 &matrix) {
@@ -713,7 +760,10 @@ private:
     DefaultEngineSceneAssetRuntime::reloadSceneAssets(
         context, sceneDescriptorSetLayout(),
         sceneSecondaryDescriptorSetLayout(),
-        [this]() { rebuildSceneRenderItems(); });
+        [this]() {
+          reloadTerrainGrassChunks();
+          rebuildSceneRenderItems();
+        });
   }
 
   void loadDebugSessionFromDisk() {

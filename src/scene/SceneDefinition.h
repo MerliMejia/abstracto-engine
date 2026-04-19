@@ -15,6 +15,7 @@ enum class SceneAssetKind {
   CharacterController = 2,
   Camera = 3,
   InstancedObject = 4,
+  TerrainGrass = 5,
 };
 
 struct CharacterControllerConfig {
@@ -39,6 +40,20 @@ struct CharacterControllerState {
 struct SceneCameraConfig {
   float fieldOfViewDegrees = 45.0f;
   float farPlane = 100.0f;
+};
+
+struct TerrainGrassConfig {
+  float density = 3.0f;
+  float placementJitter = 0.85f;
+  float chunkSize = 6.0f;
+  float drawDistance = 32.0f;
+  float maxSlopeDegrees = 45.0f;
+  float clumpRadius = 0.12f;
+  glm::vec2 bladeHeightRange{0.35f, 0.7f};
+  glm::vec2 bladeWidthRange{0.025f, 0.05f};
+  uint32_t bladesPerClump = 4;
+  uint32_t scatterSeed = 1;
+  float randomLeanDegrees = 14.0f;
 };
 
 struct SceneObjectOverride {
@@ -98,6 +113,7 @@ struct SceneAssetInstance {
   std::string terrainPaintCanvasPath;
   std::string terrainBrushTexturePath = "assets/textures/viking_room.png";
   std::vector<TerrainMaterialOverride> terrainMaterialOverrides;
+  TerrainGrassConfig terrainGrassConfig{};
   CharacterControllerConfig characterControllerConfig{};
   CharacterControllerState characterControllerState{};
   SceneCameraConfig cameraConfig{};
@@ -140,6 +156,16 @@ struct SceneAssetInstance {
         .kind = SceneAssetKind::Terrain,
         .name = std::move(nameValue),
         .terrainConfig = std::move(config),
+    };
+  }
+
+  static SceneAssetInstance
+  makeTerrainGrass(std::string nameValue = "Terrain Grass") {
+    return SceneAssetInstance{
+        .kind = SceneAssetKind::TerrainGrass,
+        .name = std::move(nameValue),
+        .renderPrimaryTransform = false,
+        .terrainGrassConfig = TerrainGrassConfig{},
     };
   }
 

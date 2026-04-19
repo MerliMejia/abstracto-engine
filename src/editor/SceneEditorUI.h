@@ -137,6 +137,19 @@ private:
     return sceneAsset;
   }
 
+  SceneAssetInstance defaultTerrainGrassAsset() const {
+    SceneAssetInstance sceneAsset = SceneAssetInstance::makeTerrainGrass();
+    for (size_t index = 0; index < bindings.sceneAssets.size(); ++index) {
+      if (bindings.sceneAssets[index].kind != SceneAssetKind::Terrain) {
+        continue;
+      }
+      sceneAsset.targetTerrainName =
+          AppSceneController::sceneAssetName(bindings.sceneAssets[index], index);
+      break;
+    }
+    return sceneAsset;
+  }
+
   void activateSceneCameraPreviewIfApplicable(int index) {
     if (index < 0 ||
         static_cast<size_t>(index) >= bindings.sceneAssets.size()) {
@@ -275,6 +288,11 @@ private:
       }
       if (ImGui::MenuItem("Instanced Object")) {
         addSceneAsset(defaultInstancedObjectAsset());
+        result.sceneAssetChanged = true;
+        result.sceneGeometryChanged = true;
+      }
+      if (ImGui::MenuItem("Terrain Grass")) {
+        addSceneAsset(defaultTerrainGrassAsset());
         result.sceneAssetChanged = true;
         result.sceneGeometryChanged = true;
       }
@@ -793,6 +811,115 @@ private:
     return result;
   }
 
+  SceneEditorUIResult buildTerrainGrassInspector(size_t sceneAssetIndex,
+                                                 SceneAssetInstance &sceneAsset) {
+    SceneEditorUIResult result;
+    ImGui::SeparatorText("Terrain Grass");
+    auto markGrassEdit = [&](bool changed, bool geometryAffected = true) {
+      result.sceneAssetChanged |= changed;
+      if (!geometryAffected) {
+        return;
+      }
+      result.sceneGeometryChanged |= ImGui::IsItemDeactivatedAfterEdit();
+    };
+
+    const std::vector<std::pair<size_t, std::string>> terrainTargets =
+        collectTerrainTargets(bindings.sceneAssets);
+    if (terrainTargets.empty()) {
+      ImGui::TextUnformatted("No terrain assets available.");
+    } else {
+      int selectedTerrainIndex = 0;
+      bool targetFound = false;
+      for (int index = 0; index < static_cast<int>(terrainTargets.size()); ++index) {
+        if (terrainTargets[static_cast<size_t>(index)].second ==
+            sceneAsset.targetTerrainName) {
+          selectedTerrainIndex = index;
+          targetFound = true;
+          break;
+        }
+      }
+
+      const std::string previewLabel =
+          targetFound ? terrainTargets[static_cast<size_t>(selectedTerrainIndex)].second
+                      : terrainTargets.front().second;
+      if (ImGui::BeginCombo("Target Terrain", previewLabel.c_str())) {
+        for (int index = 0; index < static_cast<int>(terrainTargets.size()); ++index) {
+          const bool selected = index == selectedTerrainIndex;
+          const std::string &label =
+              terrainTargets[static_cast<size_t>(index)].second;
+          if (ImGui::Selectable(label.c_str(), selected)) {
+            sceneAsset.targetTerrainName = label;
+            result.sceneAssetChanged = true;
+            result.sceneGeometryChanged = true;
+          }
+          if (selected) {
+            ImGui::SetItemDefaultFocus();
+          }
+        }
+        ImGui::EndCombo();
+      }
+
+      if (sceneAsset.targetTerrainName.empty()) {
+        sceneAsset.targetTerrainName = terrainTargets.front().second;
+        result.sceneAssetChanged = true;
+        result.sceneGeometryChanged = true;
+      }
+    }
+
+    auto &config = sceneAsset.terrainGrassConfig;
+    markGrassEdit(
+        ImGui::SliderFloat("Density", &config.density, 0.0f, 16.0f, "%.2f"));
+    markGrassEdit(ImGui::SliderFloat("Placement Jitter", &config.placementJitter,
+                                     0.0f, 1.0f, "%.2f"));
+    if (ImGui::DragFloat("Chunk Size", &config.chunkSize, 0.1f, 1.0f, 64.0f,
+                         "%.2f")) {
+      config.chunkSize = std::clamp(config.chunkSize, 1.0f, 64.0f);
+      markGrassEdit(true);
+    }
+    if (ImGui::DragFloat("Draw Distance", &config.drawDistance, 0.25f, 0.0f,
+                         256.0f, "%.2f")) {
+      config.drawDistance = std::clamp(config.drawDistance, 0.0f, 256.0f);
+      markGrassEdit(true, false);
+    }
+    markGrassEdit(ImGui::SliderFloat("Max Slope", &config.maxSlopeDegrees, 0.0f,
+                                     89.0f, "%.1f deg"));
+    if (ImGui::DragFloat("Clump Radius", &config.clumpRadius, 0.002f, 0.0f,
+                         2.0f, "%.3f")) {
+      config.clumpRadius = std::clamp(config.clumpRadius, 0.0f, 2.0f);
+      markGrassEdit(true);
+    }
+    if (ImGui::DragFloat2("Blade Height Range", &config.bladeHeightRange.x,
+                          0.01f, 0.01f, 8.0f, "%.2f")) {
+      config.bladeHeightRange.x = std::max(config.bladeHeightRange.x, 0.01f);
+      config.bladeHeightRange.y =
+          std::max(config.bladeHeightRange.y, config.bladeHeightRange.x);
+      markGrassEdit(true);
+    }
+    if (ImGui::DragFloat2("Blade Width Range", &config.bladeWidthRange.x,
+                          0.001f, 0.001f, 1.0f, "%.3f")) {
+      config.bladeWidthRange.x = std::max(config.bladeWidthRange.x, 0.001f);
+      config.bladeWidthRange.y =
+          std::max(config.bladeWidthRange.y, config.bladeWidthRange.x);
+      markGrassEdit(true);
+    }
+    int bladesPerClump = static_cast<int>(config.bladesPerClump);
+    if (ImGui::SliderInt("Blades Per Clump", &bladesPerClump, 1, 12)) {
+      config.bladesPerClump = static_cast<uint32_t>(std::max(bladesPerClump, 1));
+      markGrassEdit(true);
+    }
+    int scatterSeed = static_cast<int>(config.scatterSeed);
+    if (ImGui::InputInt("Scatter Seed", &scatterSeed)) {
+      config.scatterSeed = static_cast<uint32_t>(std::max(scatterSeed, 0));
+      markGrassEdit(true);
+    }
+    markGrassEdit(ImGui::SliderFloat("Random Lean", &config.randomLeanDegrees, 0.0f,
+                                     80.0f, "%.1f deg"));
+
+    ImGui::Text("Loaded Chunks: runtime-generated from asset %zu",
+                sceneAssetIndex);
+    return result;
+  }
+
   SceneEditorUIResult buildObjectInspector() {
     SceneEditorUIResult result;
     auto &settings = bindings.settings;
@@ -822,10 +949,18 @@ private:
           buildInstancedObjectInspector(selectedIndex, *sceneAsset);
       result.sceneAssetChanged |= instancedResult.sceneAssetChanged;
       result.sceneGeometryChanged |= instancedResult.sceneGeometryChanged;
+    } else if (sceneAsset != nullptr &&
+               sceneAsset->kind == SceneAssetKind::TerrainGrass) {
+      const SceneEditorUIResult grassResult =
+          buildTerrainGrassInspector(selectedIndex, *sceneAsset);
+      result.sceneAssetChanged |= grassResult.sceneAssetChanged;
+      result.sceneGeometryChanged |= grassResult.sceneGeometryChanged;
+      ImGui::SeparatorText("Loaded Asset");
+      ImGui::TextUnformatted("Asset: Terrain Grass");
+      ImGui::TextUnformatted("Generated as runtime chunk meshes.");
       if (asset != nullptr) {
-        ImGui::SeparatorText("Loaded Asset");
         const std::string assetPath = asset->path();
-        ImGui::Text("Asset: %s",
+        ImGui::Text("Backing Asset: %s",
                     std::filesystem::path(assetPath).filename().string().c_str());
       }
     } else if (asset != nullptr) {
@@ -856,13 +991,17 @@ private:
       } else if (sceneAsset != nullptr &&
                  sceneAsset->kind == SceneAssetKind::InstancedObject) {
         ImGui::TextUnformatted("Asset: Instanced Object");
+      } else if (sceneAsset != nullptr &&
+                 sceneAsset->kind == SceneAssetKind::TerrainGrass) {
+        ImGui::TextUnformatted("Asset: Terrain Grass");
       } else {
         ImGui::TextUnformatted("Asset: Scene Model");
       }
     }
 
     if (sceneAsset == nullptr ||
-        sceneAsset->kind != SceneAssetKind::InstancedObject) {
+        (sceneAsset->kind != SceneAssetKind::InstancedObject &&
+         sceneAsset->kind != SceneAssetKind::TerrainGrass)) {
       ImGui::SeparatorText("Transform");
       bool transformChanged = false;
       transformChanged |=

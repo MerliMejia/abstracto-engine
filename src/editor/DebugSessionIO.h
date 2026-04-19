@@ -246,6 +246,64 @@ static inline SceneCameraConfig cameraConfigFromJson(const json &value) {
   return config;
 }
 
+static inline json terrainGrassConfigToJson(const TerrainGrassConfig &config) {
+  return {
+      {"density", config.density},
+      {"placementJitter", config.placementJitter},
+      {"chunkSize", config.chunkSize},
+      {"drawDistance", config.drawDistance},
+      {"maxSlopeDegrees", config.maxSlopeDegrees},
+      {"clumpRadius", config.clumpRadius},
+      {"bladeHeightRange",
+       json::array({config.bladeHeightRange.x, config.bladeHeightRange.y})},
+      {"bladeWidthRange",
+       json::array({config.bladeWidthRange.x, config.bladeWidthRange.y})},
+      {"bladesPerClump", config.bladesPerClump},
+      {"scatterSeed", config.scatterSeed},
+      {"randomLeanDegrees", config.randomLeanDegrees},
+  };
+}
+
+static inline TerrainGrassConfig terrainGrassConfigFromJson(const json &value) {
+  TerrainGrassConfig config;
+  config.density = std::max(value.value("density", config.density), 0.0f);
+  config.placementJitter = glm::clamp(
+      value.value("placementJitter", config.placementJitter), 0.0f, 1.0f);
+  config.chunkSize = std::max(value.value("chunkSize", config.chunkSize), 1.0f);
+  config.drawDistance =
+      std::max(value.value("drawDistance", config.drawDistance), 0.0f);
+  config.maxSlopeDegrees = glm::clamp(
+      value.value("maxSlopeDegrees", config.maxSlopeDegrees), 0.0f, 89.9f);
+  config.clumpRadius =
+      std::max(value.value("clumpRadius", config.clumpRadius), 0.0f);
+  if (value.contains("bladeHeightRange") &&
+      value["bladeHeightRange"].is_array() &&
+      value["bladeHeightRange"].size() == 2) {
+    config.bladeHeightRange = glm::vec2(
+        value["bladeHeightRange"][0].get<float>(),
+        value["bladeHeightRange"][1].get<float>());
+  }
+  if (value.contains("bladeWidthRange") &&
+      value["bladeWidthRange"].is_array() &&
+      value["bladeWidthRange"].size() == 2) {
+    config.bladeWidthRange = glm::vec2(
+        value["bladeWidthRange"][0].get<float>(),
+        value["bladeWidthRange"][1].get<float>());
+  }
+  config.bladeHeightRange.x = std::max(config.bladeHeightRange.x, 0.01f);
+  config.bladeHeightRange.y =
+      std::max(config.bladeHeightRange.y, config.bladeHeightRange.x);
+  config.bladeWidthRange.x = std::max(config.bladeWidthRange.x, 0.001f);
+  config.bladeWidthRange.y =
+      std::max(config.bladeWidthRange.y, config.bladeWidthRange.x);
+  config.bladesPerClump = std::max(
+      value.value("bladesPerClump", config.bladesPerClump), 1u);
+  config.scatterSeed = value.value("scatterSeed", config.scatterSeed);
+  config.randomLeanDegrees = glm::clamp(
+      value.value("randomLeanDegrees", config.randomLeanDegrees), 0.0f, 80.0f);
+  return config;
+}
+
 static inline json sceneAssetToJson(const SceneAssetInstance &sceneAsset) {
   json value = sceneTransformToJson(sceneAsset.transform);
   value["kind"] = static_cast<uint32_t>(sceneAsset.kind);
@@ -316,6 +374,9 @@ static inline json sceneAssetToJson(const SceneAssetInstance &sceneAsset) {
         characterControllerStateToJson(sceneAsset.characterControllerState);
   } else if (sceneAsset.kind == SceneAssetKind::Camera) {
     value["cameraConfig"] = cameraConfigToJson(sceneAsset.cameraConfig);
+  } else if (sceneAsset.kind == SceneAssetKind::TerrainGrass) {
+    value["terrainGrassConfig"] =
+        terrainGrassConfigToJson(sceneAsset.terrainGrassConfig);
   }
   return value;
 }
@@ -469,6 +530,11 @@ static inline SceneAssetInstance sceneAssetFromJson(const json &value) {
              value.contains("cameraConfig") &&
              value["cameraConfig"].is_object()) {
     sceneAsset.cameraConfig = cameraConfigFromJson(value["cameraConfig"]);
+  } else if (sceneAsset.kind == SceneAssetKind::TerrainGrass &&
+             value.contains("terrainGrassConfig") &&
+             value["terrainGrassConfig"].is_object()) {
+    sceneAsset.terrainGrassConfig =
+        terrainGrassConfigFromJson(value["terrainGrassConfig"]);
   }
   return sceneAsset;
 }

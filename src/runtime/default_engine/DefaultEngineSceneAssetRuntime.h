@@ -194,6 +194,8 @@ public:
                 materials.front(), sceneAsset, paintState);
           });
       paintState.materialDirty = false;
+      paintState.paintTextureResourceDirty = false;
+      paintState.dirtyPaintRect.reset();
       paintState.lastUploadTime = std::chrono::steady_clock::now();
       return;
     }

@@ -23,6 +23,13 @@
 #include <utility>
 #include <vector>
 
+struct DefaultEngineTerrainPaintDirtyRect {
+  int minX = 0;
+  int minY = 0;
+  int maxX = 0;
+  int maxY = 0;
+};
+
 struct DefaultEngineTerrainPaintState {
   std::vector<uint8_t> canvasPixels;
   uint32_t canvasWidth = 0;
@@ -33,10 +40,15 @@ struct DefaultEngineTerrainPaintState {
   std::string loadedBrushTexturePath;
   glm::vec2 loadedUvScale{1.0f, 1.0f};
   bool materialDirty = false;
+  bool paintTextureResourceDirty = false;
   bool canvasDirty = false;
   bool strokeActive = false;
   std::vector<uint8_t> strokeBasePixels;
   std::vector<uint8_t> strokePixels;
+  std::optional<DefaultEngineTerrainPaintDirtyRect> dirtyPaintRect;
+  bool geometryGpuDirty = false;
+  bool geometryReloadPending = false;
+  std::chrono::steady_clock::time_point lastGeometryReloadTime{};
   std::chrono::steady_clock::time_point lastUploadTime =
       std::chrono::steady_clock::now();
 };
@@ -241,6 +253,47 @@ public:
     return t * t * (3.0f - 2.0f * t);
   }
 
+  static void markTerrainPaintDirty(DefaultEngineTerrainPaintState &paintState,
+                                    int minX, int minY, int maxX, int maxY) {
+    if (paintState.canvasWidth == 0 || paintState.canvasHeight == 0) {
+      return;
+    }
+
+    DefaultEngineTerrainPaintDirtyRect rect{
+        .minX = std::clamp(minX, 0, static_cast<int>(paintState.canvasWidth) - 1),
+        .minY = std::clamp(minY, 0, static_cast<int>(paintState.canvasHeight) - 1),
+        .maxX = std::clamp(maxX, 0, static_cast<int>(paintState.canvasWidth) - 1),
+        .maxY = std::clamp(maxY, 0, static_cast<int>(paintState.canvasHeight) - 1),
+    };
+    if (rect.maxX < rect.minX || rect.maxY < rect.minY) {
+      return;
+    }
+
+    if (!paintState.dirtyPaintRect.has_value()) {
+      paintState.dirtyPaintRect = rect;
+      return;
+    }
+
+    paintState.dirtyPaintRect->minX =
+        std::min(paintState.dirtyPaintRect->minX, rect.minX);
+    paintState.dirtyPaintRect->minY =
+        std::min(paintState.dirtyPaintRect->minY, rect.minY);
+    paintState.dirtyPaintRect->maxX =
+        std::max(paintState.dirtyPaintRect->maxX, rect.maxX);
+    paintState.dirtyPaintRect->maxY =
+        std::max(paintState.dirtyPaintRect->maxY, rect.maxY);
+  }
+
+  static void markFullTerrainPaintDirty(
+      DefaultEngineTerrainPaintState &paintState) {
+    if (paintState.canvasWidth == 0 || paintState.canvasHeight == 0) {
+      return;
+    }
+    markTerrainPaintDirty(paintState, 0, 0,
+                          static_cast<int>(paintState.canvasWidth) - 1,
+                          static_cast<int>(paintState.canvasHeight) - 1);
+  }
+
   static void applyTerrainPaintMaterial(
       ImportedMaterialData &material, const SceneAssetInstance &sceneAsset,
       const DefaultEngineTerrainPaintState &paintState) {
@@ -332,7 +385,9 @@ public:
       paintState.strokeBasePixels.clear();
       paintState.strokePixels.clear();
       paintState.materialDirty = true;
+      paintState.paintTextureResourceDirty = true;
       paintState.canvasDirty = true;
+      markFullTerrainPaintDirty(paintState);
     } else if (paintState.canvasWidth != canvasResolution ||
                paintState.canvasHeight != canvasResolution ||
                paintState.canvasPixels.size() != expectedCanvasSize) {
@@ -348,6 +403,8 @@ public:
       paintState.strokeBasePixels.clear();
       paintState.strokePixels.clear();
       paintState.materialDirty = true;
+      paintState.paintTextureResourceDirty = true;
+      markFullTerrainPaintDirty(paintState);
     }
 
     if (paintState.loadedBrushTexturePath != sceneAsset.terrainBrushTexturePath) {
@@ -539,6 +596,7 @@ public:
     if (changed) {
       paintState.materialDirty = true;
       paintState.canvasDirty = true;
+      markTerrainPaintDirty(paintState, minX, minY, maxX, maxY);
     }
     return changed;
   }
@@ -610,6 +668,7 @@ public:
     if (changed) {
       paintState.materialDirty = true;
       paintState.canvasDirty = true;
+      markFullTerrainPaintDirty(paintState);
     }
     return changed;
   }
@@ -702,6 +761,7 @@ public:
     if (changed) {
       paintState.materialDirty = true;
       paintState.canvasDirty = true;
+      markTerrainPaintDirty(paintState, minX, minY, maxX, maxY);
     }
     return changed;
   }
@@ -733,9 +793,13 @@ public:
         continue;
       }
 
+      if (!force && !paintState.paintTextureResourceDirty) {
+        continue;
+      }
+
       const float secondsSinceUpload =
           std::chrono::duration<float>(now - paintState.lastUploadTime).count();
-      if (!force && leftMouseDown && secondsSinceUpload < 0.08f) {
+      if (!force && leftMouseDown && secondsSinceUpload < 0.20f) {
         continue;
       }
 
@@ -761,12 +825,172 @@ public:
       context.sceneAssetModels[terrainIndex].syncMaterialResources(
           context.backend.commands(), context.backend.device());
       paintState.materialDirty = false;
+      paintState.paintTextureResourceDirty = false;
+      paintState.dirtyPaintRect.reset();
       paintState.lastUploadTime = now;
       renderItemsChanged = true;
     }
 
     if (renderItemsChanged) {
       rebuildSceneRenderItems();
+    }
+  }
+
+  static void recordTerrainPaintTextureUploads(
+      DefaultEngineTerrainRuntimeContext &context, uint32_t frameIndex,
+      vk::raii::CommandBuffer &commandBuffer) {
+    if (context.terrainPaintStates.empty()) {
+      return;
+    }
+
+    const auto now = std::chrono::steady_clock::now();
+    for (size_t terrainIndex = 0; terrainIndex < context.sceneAssets.size() &&
+                                 terrainIndex < context.terrainPaintStates.size();
+         ++terrainIndex) {
+      if (context.sceneAssets[terrainIndex].kind != SceneAssetKind::Terrain) {
+        continue;
+      }
+
+      DefaultEngineTerrainPaintState &paintState =
+          ensureTerrainPaintState(context, terrainIndex);
+      if (!paintState.materialDirty || paintState.paintTextureResourceDirty ||
+          context.sceneAssetModels.size() <= terrainIndex ||
+          context.sceneAssetModels[terrainIndex].modelAsset() == nullptr) {
+        continue;
+      }
+
+      auto &materials = context.sceneAssetModels[terrainIndex].mutableMaterials();
+      if (materials.empty()) {
+        continue;
+      }
+
+      materials.front().paintCanvasUvScale =
+          context.sceneAssets[terrainIndex].terrainConfig.uvScale;
+      context.sceneAssetModels[terrainIndex].syncMaterialParameters();
+
+      if (!paintState.dirtyPaintRect.has_value()) {
+        paintState.materialDirty = false;
+        paintState.lastUploadTime = now;
+        continue;
+      }
+
+      const DefaultEngineTerrainPaintDirtyRect rect = *paintState.dirtyPaintRect;
+      const int width = rect.maxX - rect.minX + 1;
+      const int height = rect.maxY - rect.minY + 1;
+      if (!context.sceneAssetModels[terrainIndex].canUpdatePaintCanvasTexture(
+              0, static_cast<int>(paintState.canvasWidth),
+              static_cast<int>(paintState.canvasHeight)) ||
+          !context.sceneAssetModels[terrainIndex].recordPaintCanvasTextureUpdate(
+              0, context.backend.device(), commandBuffer, frameIndex,
+              paintState.canvasPixels.data(),
+              static_cast<int>(paintState.canvasWidth),
+              static_cast<int>(paintState.canvasHeight), rect.minX, rect.minY,
+              width, height)) {
+        paintState.paintTextureResourceDirty = true;
+        continue;
+      }
+
+      paintState.dirtyPaintRect.reset();
+      paintState.materialDirty = false;
+      paintState.lastUploadTime = now;
+    }
+  }
+
+  static bool terrainGeometryReloadDue(
+      const DefaultEngineTerrainPaintState &paintState,
+      std::chrono::steady_clock::time_point now) {
+    if (paintState.lastGeometryReloadTime.time_since_epoch().count() == 0) {
+      return true;
+    }
+    const float secondsSinceReload =
+        std::chrono::duration<float>(now - paintState.lastGeometryReloadTime)
+            .count();
+    return secondsSinceReload >= 0.12f;
+  }
+
+  static void markTerrainGeometryDirty(
+      DefaultEngineTerrainRuntimeContext &context, size_t terrainIndex) {
+    if (terrainIndex >= context.sceneAssets.size()) {
+      return;
+    }
+
+    DefaultEngineTerrainPaintState &paintState =
+        ensureTerrainPaintState(context, terrainIndex);
+    paintState.geometryGpuDirty = true;
+    paintState.geometryReloadPending = true;
+  }
+
+  static void reloadTerrainGeometryNow(
+      DefaultEngineTerrainRuntimeContext &context, size_t terrainIndex,
+      const std::function<void(size_t)> &reloadTerrainAsset,
+      std::chrono::steady_clock::time_point now) {
+    if (terrainIndex >= context.sceneAssets.size()) {
+      return;
+    }
+
+    DefaultEngineTerrainPaintState &paintState =
+        ensureTerrainPaintState(context, terrainIndex);
+    paintState.geometryGpuDirty = false;
+    paintState.geometryReloadPending = false;
+    paintState.lastGeometryReloadTime = now;
+    reloadTerrainAsset(terrainIndex);
+  }
+
+  static void recordTerrainGeometryUpdates(
+      DefaultEngineTerrainRuntimeContext &context, uint32_t frameIndex,
+      vk::raii::CommandBuffer &commandBuffer) {
+    for (size_t terrainIndex = 0; terrainIndex < context.sceneAssets.size() &&
+                                 terrainIndex < context.terrainPaintStates.size();
+         ++terrainIndex) {
+      if (context.sceneAssets[terrainIndex].kind != SceneAssetKind::Terrain) {
+        continue;
+      }
+
+      DefaultEngineTerrainPaintState &paintState =
+          context.terrainPaintStates[terrainIndex];
+      if (!paintState.geometryGpuDirty) {
+        continue;
+      }
+
+      if (context.sceneAssetModels.size() <= terrainIndex ||
+          context.sceneAssetModels[terrainIndex].modelAsset() == nullptr) {
+        paintState.geometryGpuDirty = false;
+        paintState.geometryReloadPending = true;
+        continue;
+      }
+
+      if (!context.sceneAssetModels[terrainIndex].recordTerrainGeometryUpdate(
+              context.sceneAssets[terrainIndex].terrainConfig,
+              context.backend.device(), commandBuffer, frameIndex)) {
+        paintState.geometryGpuDirty = false;
+        paintState.geometryReloadPending = true;
+        continue;
+      }
+
+      paintState.geometryGpuDirty = false;
+    }
+  }
+
+  static void flushPendingTerrainGeometryReloads(
+      DefaultEngineTerrainRuntimeContext &context,
+      const std::function<void(size_t)> &reloadTerrainAsset, bool force) {
+    const auto now = std::chrono::steady_clock::now();
+    for (size_t terrainIndex = 0; terrainIndex < context.sceneAssets.size() &&
+                                 terrainIndex < context.terrainPaintStates.size();
+         ++terrainIndex) {
+      if (context.sceneAssets[terrainIndex].kind != SceneAssetKind::Terrain) {
+        continue;
+      }
+
+      DefaultEngineTerrainPaintState &paintState =
+          context.terrainPaintStates[terrainIndex];
+      if (!paintState.geometryReloadPending) {
+        continue;
+      }
+
+      if (force || terrainGeometryReloadDue(paintState, now)) {
+        reloadTerrainGeometryNow(context, terrainIndex, reloadTerrainAsset, now);
+      }
     }
   }
 
@@ -1007,6 +1231,7 @@ public:
         glfwGetMouseButton(context.window.handle(), GLFW_MOUSE_BUTTON_LEFT) ==
         GLFW_PRESS;
     if (io.WantCaptureMouse) {
+      flushPendingTerrainGeometryReloads(context, reloadTerrainAsset, true);
       context.activeTerrainFlattenStroke.reset();
       for (auto &paintState : context.terrainPaintStates) {
         endTerrainPaintStroke(paintState);
@@ -1015,6 +1240,7 @@ public:
     }
 
     if (!leftMouseDown) {
+      flushPendingTerrainGeometryReloads(context, reloadTerrainAsset, true);
       context.activeTerrainFlattenStroke.reset();
       for (auto &paintState : context.terrainPaintStates) {
         endTerrainPaintStroke(paintState);
@@ -1023,6 +1249,7 @@ public:
     }
 
     if (!hit.has_value()) {
+      flushPendingTerrainGeometryReloads(context, reloadTerrainAsset, true);
       for (auto &paintState : context.terrainPaintStates) {
         endTerrainPaintStroke(paintState);
       }
@@ -1079,7 +1306,7 @@ public:
     }
 
     if (!terrainAsset.terrainBrushTexturePaintMode) {
-      reloadTerrainAsset(hit->terrainIndex);
+      markTerrainGeometryDirty(context, hit->terrainIndex);
     }
   }
 

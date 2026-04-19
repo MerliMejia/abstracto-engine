@@ -692,6 +692,20 @@ private:
         context, force, [this]() { rebuildSceneRenderItems(); });
   }
 
+  void recordTerrainPaintTextureUploads(uint32_t frameIndex,
+                                        vk::raii::CommandBuffer &commandBuffer) {
+    auto context = terrainRuntimeContext();
+    DefaultEngineTerrainRuntime::recordTerrainPaintTextureUploads(
+        context, frameIndex, commandBuffer);
+  }
+
+  void recordTerrainGeometryUpdates(uint32_t frameIndex,
+                                    vk::raii::CommandBuffer &commandBuffer) {
+    auto context = terrainRuntimeContext();
+    DefaultEngineTerrainRuntime::recordTerrainGeometryUpdates(
+        context, frameIndex, commandBuffer);
+  }
+
   void saveTerrainPaintCanvasesToDisk() {
     auto context = terrainRuntimeContext();
     DefaultEngineTerrainRuntime::saveTerrainPaintCanvasesToDisk(context);
@@ -1192,6 +1206,8 @@ private:
     auto &commandBuffer =
         backend.commands().commandBuffer(frameState->frameIndex);
     commandBuffer.begin({});
+    recordTerrainGeometryUpdates(frameState->frameIndex, commandBuffer);
+    recordTerrainPaintTextureUploads(frameState->frameIndex, commandBuffer);
     RenderPassContext context{.commandBuffer = commandBuffer,
                               .swapchainContext = swapchainContext(),
                               .frameIndex = frameState->frameIndex,

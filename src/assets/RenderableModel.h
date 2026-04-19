@@ -246,6 +246,52 @@ public:
                        framesInFlightValue);
   }
 
+  bool canUpdatePaintCanvasTexture(size_t materialIndex, int width,
+                                   int height) const {
+    return materialSet.canUpdatePaintCanvasTexture(materialIndex, width, height);
+  }
+
+  bool recordPaintCanvasTextureUpdate(
+      size_t materialIndex, DeviceContext &deviceContext,
+      vk::raii::CommandBuffer &commandBuffer, uint32_t frameIndex,
+      const uint8_t *rgbaPixels, int sourceWidth, int sourceHeight, int x, int y,
+      int width, int height) {
+    return materialSet.recordPaintCanvasTextureUpdate(
+        materialIndex, deviceContext, commandBuffer, frameIndex, rgbaPixels,
+        sourceWidth, sourceHeight, x, y, width, height);
+  }
+
+  bool recordTerrainGeometryUpdate(const TerrainConfig &config,
+                                   DeviceContext &deviceContext,
+                                   vk::raii::CommandBuffer &commandBuffer,
+                                   uint32_t frameIndex) {
+    if (asset == nullptr ||
+        dynamic_cast<TerrainModelAsset *>(asset.get()) == nullptr) {
+      return false;
+    }
+
+    const TerrainMeshData terrainMesh = TerrainGenerator::buildMesh(config);
+    if (terrainMesh.vertices.size() != geometryMesh.vertexCount() ||
+        terrainMesh.indices != geometryMesh.getIndices()) {
+      return false;
+    }
+
+    std::vector<GeometryVertex> vertices;
+    vertices.reserve(terrainMesh.vertices.size());
+    for (const auto &vertex : terrainMesh.vertices) {
+      vertices.push_back(GeometryVertex{
+          .pos = vertex.position,
+          .normal = vertex.normal,
+          .texCoord = vertex.uv,
+          .color = vertex.color,
+      });
+    }
+
+    geometryMesh.setImportedVertices(std::move(vertices));
+    return geometryMesh.recordVertexBufferUpdate(deviceContext, commandBuffer,
+                                                frameIndex);
+  }
+
   const ModelAsset *modelAsset() const { return asset.get(); }
 
   const SkeletonAssetData *skeletonAsset() const {

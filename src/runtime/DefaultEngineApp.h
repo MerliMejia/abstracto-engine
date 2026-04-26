@@ -524,6 +524,9 @@ private:
       if (!cameraAsset.cameraConfig.followZ) {
         followedPosition.z = cameraTransform.position.z;
       }
+      followedPosition =
+          clampSceneCameraFollowPosition(cameraAsset.cameraConfig,
+                                         followedPosition);
 
       if (glm::all(glm::epsilonEqual(cameraTransform.position,
                                      followedPosition, 1e-4f))) {
@@ -538,6 +541,30 @@ private:
     if (anyChanged) {
       sceneDefinition.assets = sceneAssets;
     }
+  }
+
+  static glm::vec3
+  clampSceneCameraFollowPosition(const SceneCameraConfig &config,
+                                 const glm::vec3 &position) {
+    if (!config.followLimitsEnabled) {
+      return position;
+    }
+
+    const glm::vec3 offset = position - config.followLimitCenter;
+    const float sinYaw = std::sin(config.followLimitYawRadians);
+    const float cosYaw = std::cos(config.followLimitYawRadians);
+    const glm::vec3 right(cosYaw, 0.0f, sinYaw);
+    const glm::vec3 forward(sinYaw, 0.0f, -cosYaw);
+    const glm::vec3 verticalOffset(0.0f, offset.y, 0.0f);
+
+    const float rightDistance = glm::clamp(glm::dot(offset, right),
+                                           -config.followLimitLeft,
+                                           config.followLimitRight);
+    const float forwardDistance = glm::clamp(glm::dot(offset, forward),
+                                             -config.followLimitBack,
+                                             config.followLimitForward);
+    return config.followLimitCenter + verticalOffset + right * rightDistance +
+           forward * forwardDistance;
   }
 
   bool selectedSceneCameraFreeActive() {
@@ -997,6 +1024,29 @@ private:
     DefaultEngineDebugOverlayRuntime::updateBoneOverlay(context);
   }
 
+  void clearDebugOverlayMarkers() {
+    if (debugOverlayPass == nullptr) {
+      return;
+    }
+
+    debugOverlayPass->setMarkersVisible(false);
+    debugOverlayPass->setBonesVisible(false);
+    debugOverlayPass->setCustomVisible(false);
+    debugOverlayPass->setSceneCameraVisible(false);
+    debugOverlayPass->setCharacterVisible(false);
+    debugOverlayPass->setToolVisible(false);
+    debugOverlayPass->setLightMarkers({});
+    debugOverlayPass->setBoneSegments({});
+    debugOverlayPass->setBoneMarkers({});
+    debugOverlayPass->setCustomSegments({});
+    debugOverlayPass->setCustomMarkers({});
+    debugOverlayPass->setSceneCameraSegments({});
+    debugOverlayPass->setSceneCameraMarkers({});
+    debugOverlayPass->setCharacterSegments({});
+    debugOverlayPass->setCharacterMarkers({});
+    debugOverlayPass->setToolMarkers({});
+  }
+
   void reloadSceneAssets() {
     auto context = sceneAssetRuntimeContext();
     DefaultEngineSceneAssetRuntime::reloadSceneAssets(
@@ -1309,7 +1359,8 @@ private:
     if (debugOverlayPass != nullptr) {
       debugOverlayPass->setCamera(geometryUniformData.view,
                                   geometryUniformData.proj);
-      debugOverlayPass->setMarkersVisible(debugUiSettings.lightMarkersVisible);
+      debugOverlayPass->setMarkersVisible(!gamePlayActive &&
+                                          debugUiSettings.lightMarkersVisible);
       debugOverlayPass->setMarkerScale(debugUiSettings.lightMarkerScale);
       debugOverlayPass->setLightMarkers(RendererSceneAdapters::buildDebugLightMarkers(
           debugUiSettings.sceneLights,
@@ -1334,14 +1385,18 @@ private:
     }
     flushTerrainPaintMaterials();
     updateCharacterControllerTerrainAnchors();
-    updateTerrainWireframeOverlay();
-    if (!instancedPaintToolActive && !characterControllerToolActive) {
-      updateTerrainEditOverlay(geometryUniformData.view, geometryUniformData.proj,
-                               deltaSeconds);
+    if (gamePlayActive) {
+      clearDebugOverlayMarkers();
+    } else {
+      updateTerrainWireframeOverlay();
+      if (!instancedPaintToolActive && !characterControllerToolActive) {
+        updateTerrainEditOverlay(geometryUniformData.view,
+                                 geometryUniformData.proj, deltaSeconds);
+      }
+      updateSceneCameraOverlay();
+      updateCharacterControllerOverlay();
+      updateBoneOverlay();
     }
-    updateSceneCameraOverlay();
-    updateCharacterControllerOverlay();
-    updateBoneOverlay();
     if (tonemapPass != nullptr) {
       const glm::vec3 lightRadiance = estimatedSceneLightRadiance();
       const float lightLuminance =

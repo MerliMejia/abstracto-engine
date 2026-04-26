@@ -53,6 +53,13 @@ struct SceneCameraConfig {
   bool followX = true;
   bool followY = true;
   bool followZ = true;
+  bool followLimitsEnabled = false;
+  glm::vec3 followLimitCenter{0.0f};
+  float followLimitYawRadians = 0.0f;
+  float followLimitLeft = 5.0f;
+  float followLimitRight = 5.0f;
+  float followLimitBack = 5.0f;
+  float followLimitForward = 5.0f;
 };
 
 struct TerrainGrassConfig {

@@ -1325,6 +1325,40 @@ private:
       captureCameraFollowOffset(sceneAssetIndex, sceneAsset);
       changed = true;
     }
+
+    ImGui::SeparatorText("Follow Limits");
+    if (ImGui::Checkbox("Limit Horizontal Follow",
+                        &sceneAsset.cameraConfig.followLimitsEnabled)) {
+      captureCameraFollowLimitCenter(sceneAssetIndex, sceneAsset);
+      changed = true;
+    }
+    ImGui::BeginDisabled(!sceneAsset.cameraConfig.followLimitsEnabled);
+    if (ImGui::Button("Capture Limit Center")) {
+      captureCameraFollowLimitCenter(sceneAssetIndex, sceneAsset);
+      changed = true;
+    }
+    ImGui::Text("Center: %.2f %.2f %.2f",
+                sceneAsset.cameraConfig.followLimitCenter.x,
+                sceneAsset.cameraConfig.followLimitCenter.y,
+                sceneAsset.cameraConfig.followLimitCenter.z);
+    changed |= ImGui::DragFloat("Left", &sceneAsset.cameraConfig.followLimitLeft,
+                                0.05f, 0.0f, 500.0f);
+    changed |= ImGui::DragFloat("Right", &sceneAsset.cameraConfig.followLimitRight,
+                                0.05f, 0.0f, 500.0f);
+    changed |= ImGui::DragFloat("Back", &sceneAsset.cameraConfig.followLimitBack,
+                                0.05f, 0.0f, 500.0f);
+    changed |= ImGui::DragFloat("Forward",
+                                &sceneAsset.cameraConfig.followLimitForward,
+                                0.05f, 0.0f, 500.0f);
+    sceneAsset.cameraConfig.followLimitLeft =
+        std::max(sceneAsset.cameraConfig.followLimitLeft, 0.0f);
+    sceneAsset.cameraConfig.followLimitRight =
+        std::max(sceneAsset.cameraConfig.followLimitRight, 0.0f);
+    sceneAsset.cameraConfig.followLimitBack =
+        std::max(sceneAsset.cameraConfig.followLimitBack, 0.0f);
+    sceneAsset.cameraConfig.followLimitForward =
+        std::max(sceneAsset.cameraConfig.followLimitForward, 0.0f);
+    ImGui::EndDisabled();
     return changed;
   }
 
@@ -1346,6 +1380,19 @@ private:
     const glm::vec3 targetPosition =
         bindings.settings.sceneObjects[*targetIndex].transform.position;
     sceneAsset.cameraConfig.followOffset = cameraPosition - targetPosition;
+  }
+
+  void captureCameraFollowLimitCenter(size_t sceneAssetIndex,
+                                      SceneAssetInstance &sceneAsset) {
+    if (sceneAssetIndex >= bindings.settings.sceneObjects.size()) {
+      return;
+    }
+
+    const SceneTransform &cameraTransform =
+        bindings.settings.sceneObjects[sceneAssetIndex].transform;
+    sceneAsset.cameraConfig.followLimitCenter = cameraTransform.position;
+    sceneAsset.cameraConfig.followLimitYawRadians =
+        glm::radians(cameraTransform.rotationDegrees.y);
   }
 
   std::optional<size_t> sceneObjectIndexByName(const std::string &name,

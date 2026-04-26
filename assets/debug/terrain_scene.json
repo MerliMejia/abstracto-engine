@@ -6,13 +6,13 @@
   "cameraFarPlane": 256.20001220703125,
   "cameraLookSensitivity": 0.0035000001080334187,
   "cameraMoveSpeed": 10.0,
-  "cameraPitchRadians": -0.5764095187187195,
+  "cameraPitchRadians": -0.9200618863105774,
   "cameraPosition": [
-    25.32423973083496,
-    19.44515609741211,
-    -77.0744857788086
+    48.5023307800293,
+    83.72874450683594,
+    -90.71600341796875
   ],
-  "cameraYawRadians": 2.843170166015625,
+  "cameraYawRadians": 3.800464153289795,
   "dielectricSpecularScale": 1.2929999828338623,
   "directionalShadowExtent": 13.329999923706055,
   "directionalShadowFarPlane": 24.0,
@@ -84,7 +84,7 @@
   ],
   "pbrDebugView": 0,
   "presentedOutput": 7,
-  "runtimeState": 0,
+  "runtimeState": 1,
   "sceneAssets": [
     {
       "assetPath": "",
@@ -30126,9 +30126,9 @@
         "moveSpeed": 3.5,
         "radius": 0.3499999940395355,
         "startPosition": [
-          0.0,
-          0.0,
-          0.0
+          44.555667877197266,
+          -3.5447206497192383,
+          -49.83838653564453
         ],
         "useStartPosition": true,
         "visualAssetPath": ""
@@ -30136,16 +30136,16 @@
       "characterControllerState": {
         "grounded": true,
         "position": [
-          -27.948606491088867,
+          36.50888442993164,
           -3.5447206497192383,
-          -25.953571319580078
+          -48.2278938293457
         ],
         "velocity": [
           0.0,
           0.0,
           0.0
         ],
-        "yawRadians": -2.168653726577759
+        "yawRadians": 2.5437352657318115
       },
       "instanceAlignToTerrainNormal": true,
       "instanceBrushRadius": 2.0,
@@ -30172,14 +30172,14 @@
       "kind": 2,
       "name": "Character Controller",
       "position": [
-        -27.948606491088867,
+        36.50888442993164,
         -3.5447206497192383,
-        -25.953571319580078
+        -48.2278938293457
       ],
       "renderPrimaryTransform": true,
       "rotationDegrees": [
         0.0,
-        -124.25470733642578,
+        145.74530029296875,
         0.0
       ],
       "scale": [
@@ -30213,6 +30213,17 @@
         "farPlane": 256.20001220703125,
         "fieldOfViewDegrees": 63.29999923706055,
         "follow": true,
+        "followLimitBack": 22.799999237060547,
+        "followLimitCenter": [
+          22.511611938476563,
+          2.602005958557129,
+          -56.5213737487793
+        ],
+        "followLimitForward": 21.0,
+        "followLimitLeft": 19.399999618530273,
+        "followLimitRight": 68.75,
+        "followLimitYawRadians": 2.5437352657318115,
+        "followLimitsEnabled": true,
         "followOffset": [
           -18.193580627441406,
           6.146726608276367,
@@ -30250,9 +30261,9 @@
       "kind": 3,
       "name": "Camera",
       "position": [
-        -46.14272689819336,
+        18.31854248046875,
         2.602005958557129,
-        -33.192237854003906
+        -55.46609878540039
       ],
       "renderPrimaryTransform": true,
       "rotationDegrees": [
@@ -30395,13 +30406,13 @@
     {
       "name": "Character Controller",
       "position": [
-        -27.948606491088867,
+        36.50888442993164,
         -3.5447206497192383,
-        -25.953571319580078
+        -48.2278938293457
       ],
       "rotationDegrees": [
         0.0,
-        -124.25470733642578,
+        145.74530029296875,
         0.0
       ],
       "scale": [
@@ -30414,9 +30425,9 @@
     {
       "name": "Camera",
       "position": [
-        -46.14272689819336,
+        18.31854248046875,
         2.602005958557129,
-        -33.192237854003906
+        -55.46609878540039
       ],
       "rotationDegrees": [
         1.2654554843902588,

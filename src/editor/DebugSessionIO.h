@@ -262,6 +262,13 @@ static inline json cameraConfigToJson(const SceneCameraConfig &config) {
       {"followX", config.followX},
       {"followY", config.followY},
       {"followZ", config.followZ},
+      {"followLimitsEnabled", config.followLimitsEnabled},
+      {"followLimitCenter", vec3ToJson(config.followLimitCenter)},
+      {"followLimitYawRadians", config.followLimitYawRadians},
+      {"followLimitLeft", config.followLimitLeft},
+      {"followLimitRight", config.followLimitRight},
+      {"followLimitBack", config.followLimitBack},
+      {"followLimitForward", config.followLimitForward},
   };
 }
 
@@ -284,6 +291,21 @@ static inline SceneCameraConfig cameraConfigFromJson(const json &value) {
   config.followX = value.value("followX", config.followX);
   config.followY = value.value("followY", config.followY);
   config.followZ = value.value("followZ", config.followZ);
+  config.followLimitsEnabled =
+      value.value("followLimitsEnabled", config.followLimitsEnabled);
+  config.followLimitCenter =
+      vec3FromJson(value.value("followLimitCenter", json::array()),
+                   config.followLimitCenter);
+  config.followLimitYawRadians =
+      value.value("followLimitYawRadians", config.followLimitYawRadians);
+  config.followLimitLeft =
+      std::max(value.value("followLimitLeft", config.followLimitLeft), 0.0f);
+  config.followLimitRight =
+      std::max(value.value("followLimitRight", config.followLimitRight), 0.0f);
+  config.followLimitBack =
+      std::max(value.value("followLimitBack", config.followLimitBack), 0.0f);
+  config.followLimitForward = std::max(
+      value.value("followLimitForward", config.followLimitForward), 0.0f);
   return config;
 }
 

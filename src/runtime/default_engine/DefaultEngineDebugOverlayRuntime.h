@@ -6,6 +6,7 @@
 #include "scene/SceneDefinition.h"
 #include <algorithm>
 #include <array>
+#include <utility>
 #include <vector>
 
 struct DefaultEngineDebugOverlayRuntimeContext {
@@ -214,10 +215,12 @@ public:
     }
 
     std::vector<DebugOverlayInstance> cameraMarkers;
+    std::vector<DebugOverlayInstance> cameraSegments;
     const size_t objectCount =
         std::min(context.sceneAssets.size(),
                  context.debugUiSettings.sceneObjects.size());
     cameraMarkers.reserve(objectCount);
+    cameraSegments.reserve(objectCount * 4);
 
     for (size_t index = 0; index < objectCount; ++index) {
       if (context.sceneAssets[index].kind != SceneAssetKind::Camera ||
@@ -239,6 +242,11 @@ public:
       const bool gamePlayRendered =
           gamePlayRuntimeActive(context.debugUiSettings) &&
           index == activeGamePlayCameraIndex(context);
+      const SceneCameraConfig &cameraConfig =
+          context.sceneAssets[index].cameraConfig;
+      if (selected && cameraConfig.followLimitsEnabled) {
+        appendSceneCameraFollowLimitSegments(cameraSegments, cameraConfig);
+      }
       if (previewed || gamePlayRendered) {
         continue;
       }
@@ -258,9 +266,51 @@ public:
     }
 
     context.debugOverlayPass->setSceneCameraMarkerMesh(context.cameraGizmoMesh);
-    const bool hasCameraMarkers = !cameraMarkers.empty();
+    context.debugOverlayPass->setSceneCameraSegmentMesh(
+        context.characterControllerVerticalLineMesh);
+    const bool hasCameraMarkers =
+        !cameraMarkers.empty() || !cameraSegments.empty();
+    context.debugOverlayPass->setSceneCameraSegments(std::move(cameraSegments));
     context.debugOverlayPass->setSceneCameraMarkers(std::move(cameraMarkers));
     context.debugOverlayPass->setSceneCameraVisible(hasCameraMarkers);
+  }
+
+  static void appendSceneCameraFollowLimitSegments(
+      std::vector<DebugOverlayInstance> &cameraSegments,
+      const SceneCameraConfig &cameraConfig) {
+    const float sinYaw = std::sin(cameraConfig.followLimitYawRadians);
+    const float cosYaw = std::cos(cameraConfig.followLimitYawRadians);
+    const glm::vec3 right(cosYaw, 0.0f, sinYaw);
+    const glm::vec3 forward(sinYaw, 0.0f, -cosYaw);
+    const glm::vec3 center = cameraConfig.followLimitCenter;
+    const glm::vec3 frontRight =
+        center + right * cameraConfig.followLimitRight +
+        forward * cameraConfig.followLimitForward;
+    const glm::vec3 frontLeft =
+        center - right * cameraConfig.followLimitLeft +
+        forward * cameraConfig.followLimitForward;
+    const glm::vec3 backLeft =
+        center - right * cameraConfig.followLimitLeft -
+        forward * cameraConfig.followLimitBack;
+    const glm::vec3 backRight =
+        center + right * cameraConfig.followLimitRight -
+        forward * cameraConfig.followLimitBack;
+    const glm::vec4 limitColor(1.0f, 0.82f, 0.18f, 1.0f);
+    const glm::vec3 lift(0.0f, 0.04f, 0.0f);
+    for (const auto &edge : {std::pair<glm::vec3, glm::vec3>{frontRight,
+                                                              frontLeft},
+                             std::pair<glm::vec3, glm::vec3>{frontLeft,
+                                                              backLeft},
+                             std::pair<glm::vec3, glm::vec3>{backLeft,
+                                                              backRight},
+                             std::pair<glm::vec3, glm::vec3>{backRight,
+                                                              frontRight}}) {
+      cameraSegments.push_back(DebugOverlayInstance{
+          .model = debugLineSegmentTransform(edge.first + lift,
+                                             edge.second + lift),
+          .color = limitColor,
+      });
+    }
   }
 
   static size_t activeGamePlayCameraIndex(

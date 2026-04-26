@@ -698,6 +698,7 @@ static inline json settingsToJson(const DefaultDebugUISettings &settings) {
   }
 
   json value = {
+      {"runtimeState", static_cast<uint32_t>(settings.runtimeState)},
       {"presentedOutput", static_cast<uint32_t>(settings.presentedOutput)},
       {"pbrDebugView", static_cast<uint32_t>(settings.pbrDebugView)},
       {"selectedMaterialIndex", settings.selectedMaterialIndex},
@@ -766,6 +767,8 @@ static inline json sessionToJson(const DefaultDebugUISettings &settings,
 
 static inline DefaultDebugUISettings settingsFromJson(const json &value) {
   DefaultDebugUISettings settings;
+  settings.runtimeState = static_cast<EngineRuntimeState>(
+      value.value("runtimeState", static_cast<uint32_t>(settings.runtimeState)));
   settings.presentedOutput = static_cast<PresentedOutput>(value.value(
       "presentedOutput", static_cast<uint32_t>(settings.presentedOutput)));
   settings.pbrDebugView = static_cast<PbrDebugView>(value.value(

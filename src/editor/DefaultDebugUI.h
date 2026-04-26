@@ -93,6 +93,10 @@ private:
         buildCameraUi();
         ImGui::EndTabItem();
       }
+      if (ImGui::BeginTabItem("Runtime")) {
+        buildRuntimeUi();
+        ImGui::EndTabItem();
+      }
       if (ImGui::BeginTabItem("Session")) {
         buildSessionUi(result);
         ImGui::EndTabItem();
@@ -118,6 +122,22 @@ private:
     }
     ImGui::Text("Position: %.2f %.2f %.2f", settings.cameraPosition.x,
                 settings.cameraPosition.y, settings.cameraPosition.z);
+  }
+
+  void buildRuntimeUi() {
+    auto &settings = bindings.settings;
+    int runtimeState = static_cast<int>(settings.runtimeState);
+    if (ImGui::RadioButton("Editing", &runtimeState,
+                           static_cast<int>(EngineRuntimeState::Editing))) {
+      settings.runtimeState = EngineRuntimeState::Editing;
+      settings.cameraLookActive = false;
+    }
+    ImGui::SameLine(0.0f, 12.0f);
+    if (ImGui::RadioButton("Game Play", &runtimeState,
+                           static_cast<int>(EngineRuntimeState::GamePlay))) {
+      settings.runtimeState = EngineRuntimeState::GamePlay;
+      settings.cameraLookActive = false;
+    }
   }
 
   void buildPerformanceUi() {

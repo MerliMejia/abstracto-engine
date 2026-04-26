@@ -171,6 +171,8 @@ private:
         .sceneDefinition = sceneDefinition,
         .sceneAssets = sceneAssets,
         .debugUiSettings = debugUiSettings,
+        .window = window,
+        .cameraForward = currentViewportCameraState().forward,
     };
   }
 
@@ -722,6 +724,12 @@ private:
     DefaultEngineCharacterControllerRuntime::updateTerrainAnchors(context);
   }
 
+  void updateCharacterControllerGamePlay(float deltaSeconds) {
+    auto context = characterControllerRuntimeContext();
+    DefaultEngineCharacterControllerRuntime::updateGamePlay(context,
+                                                           deltaSeconds);
+  }
+
   std::optional<TerrainEditHit>
   raycastTerrainFromCursor(const glm::mat4 &view,
                            const glm::mat4 &proj) {
@@ -1096,13 +1104,16 @@ private:
 
     DefaultDebugCameraController cameraController =
         DefaultDebugCameraController::create(debugUiSettings);
+    const bool gamePlayActive = gamePlayRuntimeActive(debugUiSettings);
     updateSceneCameraShortcuts();
-    if (selectedSceneCameraFreeActive()) {
+    if (!gamePlayActive && selectedSceneCameraFreeActive()) {
       updateSelectedSceneCameraFree(deltaSeconds);
-    } else if (!DefaultDebugCameraController::sceneCameraPreviewActive(
+    } else if (!gamePlayActive &&
+               !DefaultDebugCameraController::sceneCameraPreviewActive(
                    debugUiSettings)) {
       cameraController.update(deltaSeconds, window.handle());
     }
+    updateCharacterControllerGamePlay(deltaSeconds);
     for (auto &sceneAssetModel : sceneAssetModels) {
       sceneAssetModel.updateAnimationPlayback(deltaSeconds);
     }

@@ -38,7 +38,18 @@ enum class ViewportCameraMode : uint32_t {
   SceneCamera = 1,
 };
 
+enum class EngineRuntimeState : uint32_t {
+  Editing = 0,
+  GamePlay = 1,
+};
+
+enum class EngineLogicState : uint32_t {
+  Always = 0,
+  GamePlay = 1,
+};
+
 struct DefaultDebugUISettings {
+  EngineRuntimeState runtimeState = EngineRuntimeState::Editing;
   PresentedOutput presentedOutput = PresentedOutput::PbrPass;
   PbrDebugView pbrDebugView = PbrDebugView::Final;
   int selectedMaterialIndex = 0;
@@ -91,6 +102,19 @@ struct DefaultDebugUISettings {
   double cameraLastCursorX = 0.0;
   double cameraLastCursorY = 0.0;
 };
+
+static inline bool gamePlayRuntimeActive(
+    const DefaultDebugUISettings &settings) {
+  return settings.runtimeState == EngineRuntimeState::GamePlay;
+}
+
+static inline bool engineLogicEnabled(const DefaultDebugUISettings &settings,
+                                      EngineLogicState logicState) {
+  if (logicState == EngineLogicState::GamePlay) {
+    return gamePlayRuntimeActive(settings);
+  }
+  return true;
+}
 
 struct DefaultDebugUICallbacks {
   std::function<void()> syncProceduralSkySunWithLight;

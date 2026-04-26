@@ -1047,6 +1047,12 @@ private:
       }
     }
 
+    if (sceneAsset != nullptr &&
+        sceneAsset->kind == SceneAssetKind::CharacterController) {
+      result.sceneAssetChanged |=
+          buildCharacterControllerInspector(selectedIndex, *sceneAsset);
+    }
+
     if (sceneAsset == nullptr ||
         (sceneAsset->kind != SceneAssetKind::InstancedObject &&
          sceneAsset->kind != SceneAssetKind::TerrainGrass)) {
@@ -1136,6 +1142,80 @@ private:
                           : "no");
     result.materialChanged = materialChanged;
     return result;
+  }
+
+  bool buildCharacterControllerInspector(size_t sceneAssetIndex,
+                                         SceneAssetInstance &sceneAsset) {
+    CharacterControllerConfig &config =
+        sceneAsset.characterControllerConfig;
+    bool changed = false;
+
+    ImGui::SeparatorText("Character Controller");
+    changed |= ImGui::DragFloat("Radius", &config.radius, 0.01f, 0.01f, 5.0f);
+    changed |=
+        ImGui::DragFloat("Half Height", &config.halfHeight, 0.01f, 0.01f, 8.0f);
+    changed |=
+        ImGui::DragFloat("Move Speed", &config.moveSpeed, 0.05f, 0.0f, 40.0f);
+    changed |= ImGui::Checkbox("Camera Follow", &config.cameraFollow);
+
+    if (config.radius < 0.01f) {
+      config.radius = 0.01f;
+    }
+    if (config.halfHeight < 0.01f) {
+      config.halfHeight = 0.01f;
+    }
+    if (config.moveSpeed < 0.0f) {
+      config.moveSpeed = 0.0f;
+    }
+
+    ImGui::SeparatorText("Start Point");
+    changed |= ImGui::Checkbox("Use Start Point", &config.useStartPosition);
+    ImGui::BeginDisabled(!config.useStartPosition);
+    ImGui::Text("Start: %.2f, %.2f, %.2f", config.startPosition.x,
+                config.startPosition.y, config.startPosition.z);
+    ImGui::EndDisabled();
+    if (ImGui::Button("Use Current Position")) {
+      config.useStartPosition = true;
+      config.startPosition = sceneAsset.characterControllerState.position;
+      changed = true;
+    }
+    ImGui::SameLine(0.0f, 6.0f);
+    const char *startToolLabel =
+        config.startPlacementMode ? "Stop Placing Start" : "Place Start";
+    if (ImGui::Button(startToolLabel)) {
+      config.startPlacementMode = !config.startPlacementMode;
+      if (config.startPlacementMode) {
+        config.limitEditMode = false;
+        bindings.settings.selectedObjectIndex = static_cast<int>(sceneAssetIndex);
+      }
+      changed = true;
+    }
+
+    ImGui::SeparatorText("Limits");
+    const char *limitToolLabel =
+        config.limitEditMode ? "Stop Editing Limits" : "Edit Limits";
+    if (ImGui::Button(limitToolLabel)) {
+      config.limitEditMode = !config.limitEditMode;
+      if (config.limitEditMode) {
+        config.startPlacementMode = false;
+        bindings.settings.selectedObjectIndex = static_cast<int>(sceneAssetIndex);
+      }
+      changed = true;
+    }
+    ImGui::SameLine(0.0f, 6.0f);
+    ImGui::Text("Points: %zu", config.limitPoints.size());
+    ImGui::BeginDisabled(config.limitPoints.empty());
+    if (ImGui::Button("Undo Point")) {
+      config.limitPoints.pop_back();
+      changed = true;
+    }
+    ImGui::SameLine(0.0f, 6.0f);
+    if (ImGui::Button("Clear Limits")) {
+      config.limitPoints.clear();
+      changed = true;
+    }
+    ImGui::EndDisabled();
+    return changed;
   }
 
   bool buildCameraInspector(size_t sceneAssetIndex,

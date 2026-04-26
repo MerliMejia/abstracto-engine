@@ -51,6 +51,32 @@ public:
     return transform;
   }
 
+  static glm::mat4 debugLineSegmentTransform(const glm::vec3 &start,
+                                             const glm::vec3 &end) {
+    const glm::vec3 midpoint = (start + end) * 0.5f;
+    const glm::vec3 segment = end - start;
+    const float length = glm::length(segment);
+    if (length <= 1e-5f) {
+      return glm::scale(glm::translate(glm::mat4(1.0f), midpoint),
+                        glm::vec3(1.0f, 0.0f, 1.0f));
+    }
+
+    const glm::vec3 up = glm::normalize(segment);
+    const glm::vec3 fallbackForward =
+        std::abs(glm::dot(up, glm::vec3(0.0f, 0.0f, 1.0f))) > 0.98f
+            ? glm::vec3(1.0f, 0.0f, 0.0f)
+            : glm::vec3(0.0f, 0.0f, 1.0f);
+    const glm::vec3 right = glm::normalize(glm::cross(fallbackForward, up));
+    const glm::vec3 forward = glm::normalize(glm::cross(up, right));
+
+    glm::mat4 transform(1.0f);
+    transform[0] = glm::vec4(right, 0.0f);
+    transform[1] = glm::vec4(up * (length * 0.5f), 0.0f);
+    transform[2] = glm::vec4(forward, 0.0f);
+    transform[3] = glm::vec4(midpoint, 1.0f);
+    return transform;
+  }
+
   static glm::vec4 boneDebugColor(const SkeletonAssetData &skeleton,
                                   int nodeIndex, int selectedBoneIndex) {
     if (nodeIndex == selectedBoneIndex) {
@@ -105,6 +131,8 @@ public:
                   context.debugUiSettings.selectedBoneIndex < 0
               ? glm::vec4(1.0f, 0.66f, 0.12f, 1.0f)
               : glm::vec4(0.16f, 0.92f, 1.0f, 1.0f);
+      const glm::vec4 startColor(0.32f, 1.0f, 0.38f, 1.0f);
+      const glm::vec4 limitColor(1.0f, 0.22f, 0.16f, 1.0f);
 
       for (const float yOffset : {halfHeight, -halfHeight}) {
         characterMarkers.push_back(DebugOverlayInstance{
@@ -131,6 +159,41 @@ public:
                      glm::scale(glm::mat4(1.0f),
                                 glm::vec3(1.0f, halfHeight, 1.0f)),
             .color = color,
+        });
+      }
+
+      if (sceneAsset.characterControllerConfig.useStartPosition) {
+        characterMarkers.push_back(DebugOverlayInstance{
+            .model =
+                glm::translate(glm::mat4(1.0f),
+                               sceneAsset.characterControllerConfig.startPosition +
+                                   glm::vec3(0.0f, 0.03f, 0.0f)) *
+                glm::scale(glm::mat4(1.0f),
+                           glm::vec3(radius * 1.35f, 1.0f, radius * 1.35f)),
+            .color = startColor,
+        });
+      }
+
+      const std::vector<glm::vec3> &limitPoints =
+          sceneAsset.characterControllerConfig.limitPoints;
+      for (size_t pointIndex = 0; pointIndex < limitPoints.size(); ++pointIndex) {
+        characterMarkers.push_back(DebugOverlayInstance{
+            .model =
+                glm::translate(glm::mat4(1.0f),
+                               limitPoints[pointIndex] +
+                                   glm::vec3(0.0f, 0.04f, 0.0f)) *
+                glm::scale(glm::mat4(1.0f),
+                           glm::vec3(radius * 0.55f, 1.0f, radius * 0.55f)),
+            .color = limitColor,
+        });
+        if (pointIndex + 1 >= limitPoints.size()) {
+          continue;
+        }
+        characterSegments.push_back(DebugOverlayInstance{
+            .model = debugLineSegmentTransform(
+                limitPoints[pointIndex] + glm::vec3(0.0f, 0.06f, 0.0f),
+                limitPoints[pointIndex + 1] + glm::vec3(0.0f, 0.06f, 0.0f)),
+            .color = limitColor,
         });
       }
     }

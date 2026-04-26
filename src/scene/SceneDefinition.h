@@ -27,6 +27,11 @@ struct CharacterControllerConfig {
   float maxSlopeDegrees = 45.0f;
   bool alignToGroundNormal = true;
   bool cameraFollow = true;
+  bool useStartPosition = false;
+  glm::vec3 startPosition{0.0f};
+  bool startPlacementMode = false;
+  bool limitEditMode = false;
+  std::vector<glm::vec3> limitPoints;
   std::string visualAssetPath;
 };
 

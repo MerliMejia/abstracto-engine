@@ -177,6 +177,10 @@ terrainMaterialOverrideFromJson(const json &value) {
 
 static inline json
 characterControllerConfigToJson(const CharacterControllerConfig &config) {
+  json limitPoints = json::array();
+  for (const glm::vec3 &point : config.limitPoints) {
+    limitPoints.push_back(vec3ToJson(point));
+  }
   return {
       {"radius", config.radius},
       {"halfHeight", config.halfHeight},
@@ -186,6 +190,9 @@ characterControllerConfigToJson(const CharacterControllerConfig &config) {
       {"maxSlopeDegrees", config.maxSlopeDegrees},
       {"alignToGroundNormal", config.alignToGroundNormal},
       {"cameraFollow", config.cameraFollow},
+      {"useStartPosition", config.useStartPosition},
+      {"startPosition", vec3ToJson(config.startPosition)},
+      {"limitPoints", std::move(limitPoints)},
       {"visualAssetPath", config.visualAssetPath},
   };
 }
@@ -204,6 +211,18 @@ characterControllerConfigFromJson(const json &value) {
   config.alignToGroundNormal = value.value("alignToGroundNormal",
                                            config.alignToGroundNormal);
   config.cameraFollow = value.value("cameraFollow", config.cameraFollow);
+  config.useStartPosition =
+      value.value("useStartPosition", config.useStartPosition);
+  config.startPosition =
+      vec3FromJson(value.value("startPosition", json::array()),
+                   config.startPosition);
+  if (value.contains("limitPoints") && value["limitPoints"].is_array()) {
+    config.limitPoints.clear();
+    config.limitPoints.reserve(value["limitPoints"].size());
+    for (const auto &pointValue : value["limitPoints"]) {
+      config.limitPoints.push_back(vec3FromJson(pointValue));
+    }
+  }
   config.visualAssetPath =
       value.value("visualAssetPath", config.visualAssetPath);
   return config;

@@ -128,6 +128,7 @@ private:
   std::optional<TerrainConfig> activeTerrainWireframeConfig;
   std::optional<DefaultEngineTerrainFlattenStroke> activeTerrainFlattenStroke;
   std::vector<DefaultEngineTerrainPaintState> terrainPaintStates;
+  bool characterControllerToolMousePressed = false;
 
   DeviceContext &deviceContext() { return backend.device(); }
   SwapchainContext &swapchainContext() { return backend.swapchain(); }
@@ -173,6 +174,7 @@ private:
         .debugUiSettings = debugUiSettings,
         .window = window,
         .cameraForward = currentViewportCameraState().forward,
+        .toolMousePressed = characterControllerToolMousePressed,
     };
   }
 
@@ -841,10 +843,27 @@ private:
     DefaultEngineCharacterControllerRuntime::updateTerrainAnchors(context);
   }
 
+  void applyCharacterControllerStartPositions() {
+    auto context = characterControllerRuntimeContext();
+    DefaultEngineCharacterControllerRuntime::applyStartPositions(context);
+  }
+
   void updateCharacterControllerGamePlay(float deltaSeconds) {
     auto context = characterControllerRuntimeContext();
     DefaultEngineCharacterControllerRuntime::updateGamePlay(context,
                                                            deltaSeconds);
+  }
+
+  bool hasActiveCharacterControllerMouseTool() {
+    auto context = characterControllerRuntimeContext();
+    return DefaultEngineCharacterControllerRuntime::hasActiveMouseTool(context);
+  }
+
+  void updateCharacterControllerMouseTool(const glm::mat4 &view,
+                                          const glm::mat4 &proj) {
+    auto context = characterControllerRuntimeContext();
+    DefaultEngineCharacterControllerRuntime::updateMouseTools(context, view,
+                                                             proj);
   }
 
   std::optional<TerrainEditHit>
@@ -987,6 +1006,8 @@ private:
           reloadTerrainGrassChunks();
           rebuildSceneRenderItems();
         });
+    applyCharacterControllerStartPositions();
+    rebuildSceneRenderItems();
   }
 
   void loadDebugSessionFromDisk() {
@@ -1296,10 +1317,15 @@ private:
           debugUiSettings.lightMarkerScale));
     }
     const bool instancedPaintToolActive = hasActiveInstancedObjectPaintTool();
+    const bool characterControllerToolActive =
+        hasActiveCharacterControllerMouseTool();
     if (instancedPaintToolActive) {
       updateInstancedObjectTerrainPaintTool(geometryUniformData.view,
                                             geometryUniformData.proj,
                                             deltaSeconds);
+    } else if (characterControllerToolActive) {
+      updateCharacterControllerMouseTool(geometryUniformData.view,
+                                         geometryUniformData.proj);
     } else {
       updateTerrainSculpting(
           raycastTerrainFromCursor(geometryUniformData.view,
@@ -1309,7 +1335,7 @@ private:
     flushTerrainPaintMaterials();
     updateCharacterControllerTerrainAnchors();
     updateTerrainWireframeOverlay();
-    if (!instancedPaintToolActive) {
+    if (!instancedPaintToolActive && !characterControllerToolActive) {
       updateTerrainEditOverlay(geometryUniformData.view, geometryUniformData.proj,
                                deltaSeconds);
     }

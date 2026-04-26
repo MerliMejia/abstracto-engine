@@ -173,7 +173,10 @@ public:
               context.debugUiSettings) &&
           context.debugUiSettings.viewportSceneCameraIndex ==
               static_cast<int>(index);
-      if (previewed) {
+      const bool gamePlayRendered =
+          gamePlayRuntimeActive(context.debugUiSettings) &&
+          index == activeGamePlayCameraIndex(context);
+      if (previewed || gamePlayRendered) {
         continue;
       }
       const glm::vec4 color =
@@ -195,6 +198,29 @@ public:
     const bool hasCameraMarkers = !cameraMarkers.empty();
     context.debugOverlayPass->setSceneCameraMarkers(std::move(cameraMarkers));
     context.debugOverlayPass->setSceneCameraVisible(hasCameraMarkers);
+  }
+
+  static size_t activeGamePlayCameraIndex(
+      const DefaultEngineDebugOverlayRuntimeContext &context) {
+    const size_t objectCount =
+        std::min(context.sceneAssets.size(),
+                 context.debugUiSettings.sceneObjects.size());
+    const int selectedIndex = context.debugUiSettings.selectedObjectIndex;
+    if (selectedIndex >= 0 && static_cast<size_t>(selectedIndex) < objectCount) {
+      const size_t index = static_cast<size_t>(selectedIndex);
+      if (context.sceneAssets[index].kind == SceneAssetKind::Camera &&
+          context.debugUiSettings.sceneObjects[index].visible) {
+        return index;
+      }
+    }
+
+    for (size_t index = 0; index < objectCount; ++index) {
+      if (context.sceneAssets[index].kind == SceneAssetKind::Camera &&
+          context.debugUiSettings.sceneObjects[index].visible) {
+        return index;
+      }
+    }
+    return objectCount;
   }
 
   static void updateBoneOverlay(DefaultEngineDebugOverlayRuntimeContext &context) {

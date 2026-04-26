@@ -41,6 +41,13 @@ struct SceneCameraConfig {
   float fieldOfViewDegrees = 45.0f;
   float farPlane = 100.0f;
   bool free = false;
+  bool follow = false;
+  std::string followTargetName;
+  glm::vec3 followOffset{0.0f};
+  float followSmoothness = 0.0f;
+  bool followX = true;
+  bool followY = true;
+  bool followZ = true;
 };
 
 struct TerrainGrassConfig {

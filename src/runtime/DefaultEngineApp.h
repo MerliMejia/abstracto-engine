@@ -393,8 +393,52 @@ private:
     float farPlane = 100.0f;
   };
 
+  std::optional<size_t> activeGamePlayCameraIndex() const {
+    if (!gamePlayRuntimeActive(debugUiSettings)) {
+      return std::nullopt;
+    }
+
+    const size_t objectCount =
+        std::min(sceneAssets.size(), debugUiSettings.sceneObjects.size());
+    const int selectedIndex = debugUiSettings.selectedObjectIndex;
+    if (selectedIndex >= 0 &&
+        static_cast<size_t>(selectedIndex) < objectCount) {
+      const size_t index = static_cast<size_t>(selectedIndex);
+      if (sceneAssets[index].kind == SceneAssetKind::Camera &&
+          debugUiSettings.sceneObjects[index].visible) {
+        return index;
+      }
+    }
+
+    for (size_t index = 0; index < objectCount; ++index) {
+      if (sceneAssets[index].kind == SceneAssetKind::Camera &&
+          debugUiSettings.sceneObjects[index].visible) {
+        return index;
+      }
+    }
+    return std::nullopt;
+  }
+
+  ViewportCameraState sceneCameraState(size_t sceneCameraIndex) const {
+    const SceneObject &sceneObject = debugUiSettings.sceneObjects[sceneCameraIndex];
+    const SceneAssetInstance &sceneAsset = sceneAssets[sceneCameraIndex];
+    return ViewportCameraState{
+        .position = sceneObject.transform.position,
+        .forward =
+            AppSceneController::forwardFromSceneTransform(sceneObject.transform),
+        .verticalFovRadians =
+            glm::radians(sceneAsset.cameraConfig.fieldOfViewDegrees),
+        .farPlane = sceneAsset.cameraConfig.farPlane,
+    };
+  }
+
   ViewportCameraState currentViewportCameraState() {
     sanitizeSceneCameraPreview();
+    if (const auto gamePlayCameraIndex = activeGamePlayCameraIndex();
+        gamePlayCameraIndex.has_value()) {
+      return sceneCameraState(*gamePlayCameraIndex);
+    }
+
     if (!DefaultDebugCameraController::sceneCameraPreviewActive(
             debugUiSettings)) {
       return ViewportCameraState{
@@ -408,17 +452,90 @@ private:
 
     const size_t sceneCameraIndex =
         static_cast<size_t>(debugUiSettings.viewportSceneCameraIndex);
-    const SceneObject &sceneObject =
-        debugUiSettings.sceneObjects[sceneCameraIndex];
-    const SceneAssetInstance &sceneAsset = sceneAssets[sceneCameraIndex];
-    return ViewportCameraState{
-        .position = sceneObject.transform.position,
-        .forward =
-            AppSceneController::forwardFromSceneTransform(sceneObject.transform),
-        .verticalFovRadians =
-            glm::radians(sceneAsset.cameraConfig.fieldOfViewDegrees),
-        .farPlane = sceneAsset.cameraConfig.farPlane,
-    };
+    return sceneCameraState(sceneCameraIndex);
+  }
+
+  std::optional<size_t> sceneObjectIndexByName(const std::string &name,
+                                               size_t excludedIndex) const {
+    if (name.empty()) {
+      return std::nullopt;
+    }
+
+    const size_t objectCount =
+        std::min(sceneAssets.size(), debugUiSettings.sceneObjects.size());
+    for (size_t index = 0; index < objectCount; ++index) {
+      if (index == excludedIndex) {
+        continue;
+      }
+      const std::string objectName =
+          debugUiSettings.sceneObjects[index].name.empty()
+              ? AppSceneController::sceneAssetName(sceneAssets[index], index)
+              : debugUiSettings.sceneObjects[index].name;
+      if (objectName == name) {
+        return index;
+      }
+    }
+    return std::nullopt;
+  }
+
+  void updateSceneCameraFollows(float deltaSeconds) {
+    const size_t objectCount =
+        std::min(sceneAssets.size(), debugUiSettings.sceneObjects.size());
+    bool anyChanged = false;
+
+    for (size_t cameraIndex = 0; cameraIndex < objectCount; ++cameraIndex) {
+      SceneAssetInstance &cameraAsset = sceneAssets[cameraIndex];
+      if (cameraAsset.kind != SceneAssetKind::Camera ||
+          !cameraAsset.cameraConfig.follow ||
+          cameraAsset.cameraConfig.followTargetName.empty()) {
+        continue;
+      }
+
+      const auto targetIndex = sceneObjectIndexByName(
+          cameraAsset.cameraConfig.followTargetName, cameraIndex);
+      if (!targetIndex.has_value()) {
+        continue;
+      }
+
+      const SceneTransform &targetTransform =
+          debugUiSettings.sceneObjects[*targetIndex].transform;
+      SceneTransform &cameraTransform =
+          debugUiSettings.sceneObjects[cameraIndex].transform;
+      const glm::vec3 targetPosition =
+          targetTransform.position + cameraAsset.cameraConfig.followOffset;
+      glm::vec3 followedPosition = targetPosition;
+      if (cameraAsset.cameraConfig.followSmoothness > 0.0f) {
+        const float followBlend =
+            1.0f -
+            std::exp(-cameraAsset.cameraConfig.followSmoothness * deltaSeconds);
+        followedPosition =
+            glm::mix(cameraTransform.position, targetPosition, followBlend);
+      } else {
+        followedPosition = targetPosition;
+      }
+      if (!cameraAsset.cameraConfig.followX) {
+        followedPosition.x = cameraTransform.position.x;
+      }
+      if (!cameraAsset.cameraConfig.followY) {
+        followedPosition.y = cameraTransform.position.y;
+      }
+      if (!cameraAsset.cameraConfig.followZ) {
+        followedPosition.z = cameraTransform.position.z;
+      }
+
+      if (glm::all(glm::epsilonEqual(cameraTransform.position,
+                                     followedPosition, 1e-4f))) {
+        continue;
+      }
+
+      cameraTransform.position = followedPosition;
+      cameraAsset.transform.position = followedPosition;
+      anyChanged = true;
+    }
+
+    if (anyChanged) {
+      sceneDefinition.assets = sceneAssets;
+    }
   }
 
   bool selectedSceneCameraFreeActive() {
@@ -1114,6 +1231,7 @@ private:
       cameraController.update(deltaSeconds, window.handle());
     }
     updateCharacterControllerGamePlay(deltaSeconds);
+    updateSceneCameraFollows(deltaSeconds);
     for (auto &sceneAssetModel : sceneAssetModels) {
       sceneAssetModel.updateAnimationPlayback(deltaSeconds);
     }

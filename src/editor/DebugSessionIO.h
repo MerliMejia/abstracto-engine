@@ -236,6 +236,13 @@ static inline json cameraConfigToJson(const SceneCameraConfig &config) {
       {"fieldOfViewDegrees", config.fieldOfViewDegrees},
       {"farPlane", config.farPlane},
       {"free", config.free},
+      {"follow", config.follow},
+      {"followTargetName", config.followTargetName},
+      {"followOffset", vec3ToJson(config.followOffset)},
+      {"followSmoothness", config.followSmoothness},
+      {"followX", config.followX},
+      {"followY", config.followY},
+      {"followZ", config.followZ},
   };
 }
 
@@ -246,6 +253,18 @@ static inline SceneCameraConfig cameraConfigFromJson(const json &value) {
       120.0f);
   config.farPlane = std::max(value.value("farPlane", config.farPlane), 1.0f);
   config.free = value.value("free", config.free);
+  config.follow = value.value("follow", config.follow);
+  config.followTargetName =
+      value.value("followTargetName", config.followTargetName);
+  config.followOffset =
+      vec3FromJson(value.value("followOffset", json::array()),
+                   config.followOffset);
+  config.followSmoothness =
+      glm::clamp(value.value("followSmoothness", config.followSmoothness),
+                 0.0f, 20.0f);
+  config.followX = value.value("followX", config.followX);
+  config.followY = value.value("followY", config.followY);
+  config.followZ = value.value("followZ", config.followZ);
   return config;
 }
 

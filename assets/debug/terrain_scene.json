@@ -69,7 +69,7 @@
   "lightMarkersVisible": true,
   "modelPosition": [
     0.0,
-    0.0,
+    -5.0,
     0.0
   ],
   "modelRotationDegrees": [
@@ -84,6 +84,7 @@
   ],
   "pbrDebugView": 0,
   "presentedOutput": 7,
+  "runtimeState": 1,
   "sceneAssets": [
     {
       "assetPath": "",
@@ -113,7 +114,7 @@
       "name": "Terrain",
       "position": [
         0.0,
-        0.0,
+        -5.0,
         0.0
       ],
       "renderPrimaryTransform": true,
@@ -29775,18 +29776,18 @@
         "visualAssetPath": ""
       },
       "characterControllerState": {
-        "grounded": false,
+        "grounded": true,
         "position": [
-          43.54999923706055,
-          1.4552793502807617,
-          -52.709999084472656
+          43.57368850708008,
+          -3.5447206497192383,
+          -51.02093505859375
         ],
         "velocity": [
           0.0,
           0.0,
           0.0
         ],
-        "yawRadians": 0.0
+        "yawRadians": 2.5437352657318115
       },
       "instanceAlignToTerrainNormal": true,
       "instanceBrushRadius": 2.0,
@@ -29813,14 +29814,14 @@
       "kind": 2,
       "name": "Character Controller",
       "position": [
-        43.54999923706055,
-        1.4552793502807617,
-        -52.709999084472656
+        43.57368850708008,
+        -3.5447206497192383,
+        -51.02093505859375
       ],
       "renderPrimaryTransform": true,
       "rotationDegrees": [
         0.0,
-        0.0,
+        145.74530029296875,
         0.0
       ],
       "scale": [
@@ -29852,7 +29853,18 @@
       "assetPath": "",
       "cameraConfig": {
         "farPlane": 256.20001220703125,
-        "fieldOfViewDegrees": 84.80000305175781,
+        "fieldOfViewDegrees": 63.29999923706055,
+        "follow": true,
+        "followOffset": [
+          -18.193580627441406,
+          6.146726608276367,
+          -7.232452392578125
+        ],
+        "followSmoothness": 4.099999904632568,
+        "followTargetName": "Character Controller",
+        "followX": true,
+        "followY": false,
+        "followZ": true,
         "free": true
       },
       "instanceAlignToTerrainNormal": true,
@@ -29880,14 +29892,14 @@
       "kind": 3,
       "name": "Camera",
       "position": [
-        33.30467987060547,
-        6.927894115447998,
-        -58.55940246582031
+        25.377422332763672,
+        2.602005958557129,
+        -58.25410079956055
       ],
       "renderPrimaryTransform": true,
       "rotationDegrees": [
-        -8.555331230163574,
-        147.43798828125,
+        1.2654554843902588,
+        145.74530029296875,
         0.0
       ],
       "scale": [
@@ -30007,7 +30019,7 @@
       "name": "Terrain",
       "position": [
         0.0,
-        0.0,
+        -5.0,
         0.0
       ],
       "rotationDegrees": [
@@ -30025,13 +30037,13 @@
     {
       "name": "Character Controller",
       "position": [
-        43.54999923706055,
-        1.4552793502807617,
-        -52.709999084472656
+        43.57368850708008,
+        -3.5447206497192383,
+        -51.02093505859375
       ],
       "rotationDegrees": [
         0.0,
-        0.0,
+        145.74530029296875,
         0.0
       ],
       "scale": [
@@ -30044,13 +30056,13 @@
     {
       "name": "Camera",
       "position": [
-        33.30467987060547,
-        6.927894115447998,
-        -58.55940246582031
+        25.377422332763672,
+        2.602005958557129,
+        -58.25410079956055
       ],
       "rotationDegrees": [
-        -8.555331230163574,
-        147.43798828125,
+        1.2654554843902588,
+        145.74530029296875,
         0.0
       ],
       "scale": [

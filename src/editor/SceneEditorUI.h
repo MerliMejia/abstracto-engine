@@ -5,6 +5,7 @@
 #include "scene/SceneDefinition.h"
 #include <algorithm>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <system_error>
 #include <unordered_set>
@@ -1180,7 +1181,116 @@ private:
     changed |= ImGui::SliderFloat("Camera Far Clip",
                                   &sceneAsset->cameraConfig.farPlane, 10.0f,
                                   500.0f, "%.1f");
+    changed |= buildCameraFollowInspector(sceneAssetIndex, *sceneAsset);
     return changed;
+  }
+
+  bool buildCameraFollowInspector(size_t sceneAssetIndex,
+                                  SceneAssetInstance &sceneAsset) {
+    auto &settings = bindings.settings;
+    bool changed = false;
+
+    ImGui::SeparatorText("Follow");
+    if (ImGui::Checkbox("Follow", &sceneAsset.cameraConfig.follow)) {
+      captureCameraFollowOffset(sceneAssetIndex, sceneAsset);
+      changed = true;
+    }
+
+    const std::string selectedName =
+        sceneAsset.cameraConfig.followTargetName.empty()
+            ? "<none>"
+            : sceneAsset.cameraConfig.followTargetName;
+    if (ImGui::BeginCombo("Target", selectedName.c_str())) {
+      const bool noTargetSelected =
+          sceneAsset.cameraConfig.followTargetName.empty();
+      if (ImGui::Selectable("<none>", noTargetSelected)) {
+        sceneAsset.cameraConfig.followTargetName.clear();
+        sceneAsset.cameraConfig.followOffset = glm::vec3(0.0f);
+        changed = true;
+      }
+      for (size_t index = 0; index < bindings.sceneAssets.size(); ++index) {
+        if (index == sceneAssetIndex || index >= settings.sceneObjects.size()) {
+          continue;
+        }
+
+        const std::string targetName =
+            settings.sceneObjects[index].name.empty()
+                ? AppSceneController::sceneAssetName(bindings.sceneAssets[index],
+                                                     index)
+                : settings.sceneObjects[index].name;
+        const bool selected =
+            sceneAsset.cameraConfig.followTargetName == targetName;
+        if (ImGui::Selectable(targetName.c_str(), selected)) {
+          sceneAsset.cameraConfig.followTargetName = targetName;
+          captureCameraFollowOffset(sceneAssetIndex, sceneAsset);
+          changed = true;
+        }
+      }
+      ImGui::EndCombo();
+    }
+
+    changed |= ImGui::Checkbox("X", &sceneAsset.cameraConfig.followX);
+    ImGui::SameLine(0.0f, 12.0f);
+    changed |= ImGui::Checkbox("Y", &sceneAsset.cameraConfig.followY);
+    ImGui::SameLine(0.0f, 12.0f);
+    changed |= ImGui::Checkbox("Z", &sceneAsset.cameraConfig.followZ);
+    changed |= ImGui::SliderFloat("Smoothness",
+                                  &sceneAsset.cameraConfig.followSmoothness,
+                                  0.0f, 20.0f, "%.2f");
+    ImGui::Text("Offset: %.2f %.2f %.2f",
+                sceneAsset.cameraConfig.followOffset.x,
+                sceneAsset.cameraConfig.followOffset.y,
+                sceneAsset.cameraConfig.followOffset.z);
+    if (ImGui::Button("Capture Current Offset")) {
+      captureCameraFollowOffset(sceneAssetIndex, sceneAsset);
+      changed = true;
+    }
+    return changed;
+  }
+
+  void captureCameraFollowOffset(size_t sceneAssetIndex,
+                                 SceneAssetInstance &sceneAsset) {
+    if (sceneAsset.cameraConfig.followTargetName.empty() ||
+        sceneAssetIndex >= bindings.settings.sceneObjects.size()) {
+      return;
+    }
+
+    const std::optional<size_t> targetIndex = sceneObjectIndexByName(
+        sceneAsset.cameraConfig.followTargetName, sceneAssetIndex);
+    if (!targetIndex.has_value()) {
+      return;
+    }
+
+    const glm::vec3 cameraPosition =
+        bindings.settings.sceneObjects[sceneAssetIndex].transform.position;
+    const glm::vec3 targetPosition =
+        bindings.settings.sceneObjects[*targetIndex].transform.position;
+    sceneAsset.cameraConfig.followOffset = cameraPosition - targetPosition;
+  }
+
+  std::optional<size_t> sceneObjectIndexByName(const std::string &name,
+                                               size_t excludedIndex) const {
+    if (name.empty()) {
+      return std::nullopt;
+    }
+
+    const size_t objectCount =
+        std::min(bindings.sceneAssets.size(),
+                 bindings.settings.sceneObjects.size());
+    for (size_t index = 0; index < objectCount; ++index) {
+      if (index == excludedIndex) {
+        continue;
+      }
+      const std::string objectName =
+          bindings.settings.sceneObjects[index].name.empty()
+              ? AppSceneController::sceneAssetName(bindings.sceneAssets[index],
+                                                   index)
+              : bindings.settings.sceneObjects[index].name;
+      if (objectName == name) {
+        return index;
+      }
+    }
+    return std::nullopt;
   }
 
   struct TerrainInspectorResult {

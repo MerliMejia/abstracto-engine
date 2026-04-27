@@ -56,6 +56,7 @@ struct DefaultDebugUISettings {
   int selectedObjectIndex = 0;
   int selectedLightIndex = -1;
   int selectedBoneIndex = -1;
+  int selectedCharacterVisualObjectIndex = -1;
   int selectedAnimationObjectIndex = -1;
   int selectedAnimationIndex = -1;
 
@@ -311,11 +312,16 @@ struct DefaultDebugUIBindings {
 inline void clampSceneObjectSelection(DefaultDebugUISettings &settings) {
   if (settings.sceneObjects.empty()) {
     settings.selectedObjectIndex = 0;
+    settings.selectedCharacterVisualObjectIndex = -1;
     return;
   }
   settings.selectedObjectIndex =
       std::clamp(settings.selectedObjectIndex, 0,
                  static_cast<int>(settings.sceneObjects.size()) - 1);
+  if (settings.selectedCharacterVisualObjectIndex >=
+      static_cast<int>(settings.sceneObjects.size())) {
+    settings.selectedCharacterVisualObjectIndex = -1;
+  }
 }
 
 inline void ensureSceneObjects(DefaultDebugUISettings &settings) {

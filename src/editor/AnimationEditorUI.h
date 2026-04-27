@@ -57,6 +57,7 @@ private:
     settings.selectedObjectIndex = objectIndex;
     settings.selectedLightIndex = -1;
     settings.selectedBoneIndex = -1;
+    settings.selectedCharacterVisualObjectIndex = -1;
 
     if (objectIndex < 0 ||
         static_cast<size_t>(objectIndex) >= bindings.sceneModels.size()) {

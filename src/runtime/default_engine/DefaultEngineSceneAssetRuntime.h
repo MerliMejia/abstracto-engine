@@ -200,11 +200,15 @@ public:
       return;
     }
 
-    if (sceneAsset.assetPath.empty()) {
+    const std::string assetPath =
+        sceneAsset.kind == SceneAssetKind::CharacterController
+            ? sceneAsset.characterControllerConfig.visualAssetPath
+            : sceneAsset.assetPath;
+    if (assetPath.empty()) {
       return;
     }
     context.sceneAssetModels[index].loadFromFile(
-        sceneAsset.assetPath, context.backend.commands(), context.backend.device(),
+        assetPath, context.backend.commands(), context.backend.device(),
         sceneDescriptorSetLayout, sceneSecondaryDescriptorSetLayout,
         context.frameGeometryUniforms, context.sampler,
         DEFAULT_ENGINE_MAX_FRAMES_IN_FLIGHT);

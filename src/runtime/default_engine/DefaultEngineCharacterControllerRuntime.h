@@ -305,12 +305,8 @@ public:
         constrainedByLimits(characterAsset, previousPosition, desiredPosition);
     characterAsset.characterControllerState.velocity =
         moveDirection * characterAsset.characterControllerConfig.moveSpeed;
-    characterAsset.characterControllerState.yawRadians =
-        std::atan2(moveDirection.x, -moveDirection.z);
     characterAsset.transform.position =
         characterAsset.characterControllerState.position;
-    characterAsset.transform.rotationDegrees.y =
-        glm::degrees(characterAsset.characterControllerState.yawRadians);
     characterObject.transform = characterAsset.transform;
     snapCharacterControllerToTerrain(context, *characterIndex);
     context.sceneDefinition.assets = context.sceneAssets;

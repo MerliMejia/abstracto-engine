@@ -39,9 +39,13 @@ public:
                              (sceneAssets[index].renderPrimaryTransform ? 1u
                                                                         : 0u));
       if (sceneAssets[index].renderPrimaryTransform) {
-        objectMatrices.push_back(
-            AppSceneController::sceneTransformMatrix(
-                settings.sceneObjects[index].transform));
+        glm::mat4 modelMatrix = AppSceneController::sceneTransformMatrix(
+            settings.sceneObjects[index].transform);
+        if (sceneAssets[index].kind == SceneAssetKind::CharacterController) {
+          modelMatrix *= AppSceneController::sceneTransformMatrix(
+              sceneAssets[index].characterControllerConfig.visualLocalTransform);
+        }
+        objectMatrices.push_back(modelMatrix);
       }
       for (const auto &instanceTransform : sceneAssets[index].instanceTransforms) {
         objectMatrices.push_back(

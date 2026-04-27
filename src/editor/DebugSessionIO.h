@@ -194,6 +194,7 @@ characterControllerConfigToJson(const CharacterControllerConfig &config) {
       {"startPosition", vec3ToJson(config.startPosition)},
       {"limitPoints", std::move(limitPoints)},
       {"visualAssetPath", config.visualAssetPath},
+      {"visualLocalTransform", sceneTransformToJson(config.visualLocalTransform)},
   };
 }
 
@@ -225,6 +226,12 @@ characterControllerConfigFromJson(const json &value) {
   }
   config.visualAssetPath =
       value.value("visualAssetPath", config.visualAssetPath);
+  if (value.contains("visualLocalTransform") &&
+      value["visualLocalTransform"].is_object()) {
+    config.visualLocalTransform =
+        sceneTransformFromJson(value["visualLocalTransform"],
+                               config.visualLocalTransform);
+  }
   return config;
 }
 
@@ -631,6 +638,9 @@ static inline json sceneLightToJson(const SceneLight &light) {
       {"castsShadow", light.castsShadow},
       {"shadowBias", light.shadowBias},
       {"shadowNormalBias", light.shadowNormalBias},
+      {"followTarget", light.followTarget},
+      {"followTargetName", light.followTargetName},
+      {"followOffset", vec3ToJson(light.followOffset)},
   };
 }
 
@@ -662,6 +672,12 @@ static inline SceneLight sceneLightFromJson(const json &value) {
       std::max(value.value("shadowBias", light.shadowBias), 0.0f);
   light.shadowNormalBias =
       std::max(value.value("shadowNormalBias", light.shadowNormalBias), 0.0f);
+  light.followTarget = value.value("followTarget", light.followTarget);
+  light.followTargetName =
+      value.value("followTargetName", light.followTargetName);
+  light.followOffset =
+      vec3FromJson(value.value("followOffset", json::array()),
+                   light.followOffset);
   light.normalizeDirection();
   return light;
 }
@@ -765,6 +781,8 @@ static inline json settingsToJson(const DefaultDebugUISettings &settings) {
       {"selectedObjectIndex", settings.selectedObjectIndex},
       {"selectedLightIndex", settings.selectedLightIndex},
       {"selectedBoneIndex", settings.selectedBoneIndex},
+      {"selectedCharacterVisualObjectIndex",
+       settings.selectedCharacterVisualObjectIndex},
       {"selectedAnimationObjectIndex", settings.selectedAnimationObjectIndex},
       {"selectedAnimationIndex", settings.selectedAnimationIndex},
       {"sceneObjects", sceneObjects},
@@ -841,6 +859,9 @@ static inline DefaultDebugUISettings settingsFromJson(const json &value) {
       value.value("selectedLightIndex", settings.selectedLightIndex);
   settings.selectedBoneIndex =
       value.value("selectedBoneIndex", settings.selectedBoneIndex);
+  settings.selectedCharacterVisualObjectIndex =
+      value.value("selectedCharacterVisualObjectIndex",
+                  settings.selectedCharacterVisualObjectIndex);
   settings.selectedAnimationObjectIndex = value.value(
       "selectedAnimationObjectIndex", settings.selectedAnimationObjectIndex);
   settings.selectedAnimationIndex =

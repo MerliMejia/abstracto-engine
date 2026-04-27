@@ -178,6 +178,7 @@ private:
     settings.selectedObjectIndex = static_cast<int>(assetIndex);
     settings.selectedLightIndex = -1;
     settings.selectedBoneIndex = -1;
+    settings.selectedCharacterVisualObjectIndex = -1;
     settings.selectedMaterialIndex = 0;
     activateSceneCameraPreviewIfApplicable(static_cast<int>(assetIndex));
   }
@@ -209,6 +210,7 @@ private:
 
     settings.selectedLightIndex = -1;
     settings.selectedBoneIndex = -1;
+    settings.selectedCharacterVisualObjectIndex = -1;
     settings.selectedAnimationObjectIndex = -1;
     settings.selectedAnimationIndex = -1;
     settings.selectedMaterialIndex = 0;
@@ -239,6 +241,19 @@ private:
 
     settings.selectedLightIndex = static_cast<int>(settings.sceneLights.size()) - 1;
     settings.selectedBoneIndex = -1;
+    settings.selectedCharacterVisualObjectIndex = -1;
+  }
+
+  void addSpotLightFromDebugCamera() {
+    auto &settings = bindings.settings;
+    const glm::vec3 debugCameraForward =
+        DefaultDebugCameraController::forwardFromSettings(settings);
+    settings.sceneLights.addSpot("Debug Camera Spot Light",
+                                 settings.cameraPosition, debugCameraForward);
+    settings.selectedLightIndex =
+        static_cast<int>(settings.sceneLights.size()) - 1;
+    settings.selectedBoneIndex = -1;
+    settings.selectedCharacterVisualObjectIndex = -1;
   }
 
   void buildAssetAddMenu(SceneEditorUIResult &result) {
@@ -307,6 +322,9 @@ private:
       if (ImGui::MenuItem("Spot Light")) {
         addLight(SceneLightType::Spot);
       }
+      if (ImGui::MenuItem("Spot Light From Debug Camera")) {
+        addSpotLightFromDebugCamera();
+      }
       ImGui::EndMenu();
     }
 
@@ -316,6 +334,7 @@ private:
         settings.sceneLights = SceneLightSet::showcaseLights();
         settings.selectedLightIndex = settings.sceneLights.empty() ? -1 : 0;
         settings.selectedBoneIndex = -1;
+        settings.selectedCharacterVisualObjectIndex = -1;
       }
       ImGui::EndMenu();
     }
@@ -430,6 +449,7 @@ private:
     settings.selectedObjectIndex = index;
     settings.selectedLightIndex = -1;
     settings.selectedBoneIndex = -1;
+    settings.selectedCharacterVisualObjectIndex = -1;
     activateSceneCameraPreviewIfApplicable(index);
 
     if (bindings.sceneModel.modelAsset() == nullptr) {
@@ -440,10 +460,20 @@ private:
     }
   }
 
+  void selectCharacterVisual(int index) {
+    auto &settings = bindings.settings;
+    settings.selectedObjectIndex = index;
+    settings.selectedLightIndex = -1;
+    settings.selectedBoneIndex = -1;
+    settings.selectedCharacterVisualObjectIndex = index;
+    settings.selectedMaterialIndex = 0;
+  }
+
   void selectBone(int index) {
     auto &settings = bindings.settings;
     settings.selectedLightIndex = -1;
     settings.selectedBoneIndex = index;
+    settings.selectedCharacterVisualObjectIndex = -1;
   }
 
   static const char *lightTypeLabel(SceneLightType type) {
@@ -509,6 +539,7 @@ private:
                               settings.selectedLightIndex == index)) {
           settings.selectedLightIndex = index;
           settings.selectedBoneIndex = -1;
+          settings.selectedCharacterVisualObjectIndex = -1;
         }
       }
     }
@@ -541,8 +572,15 @@ private:
     const SceneObject &object = settings.sceneObjects[static_cast<size_t>(index)];
     const bool isSelectedObject =
         settings.selectedLightIndex < 0 && settings.selectedObjectIndex == index;
+    const bool isSelectedCharacterVisual =
+        settings.selectedCharacterVisualObjectIndex == index;
+    const bool showCharacterVisualChild =
+        index >= 0 && static_cast<size_t>(index) < bindings.sceneAssets.size() &&
+        bindings.sceneAssets[static_cast<size_t>(index)].kind ==
+            SceneAssetKind::CharacterController;
     const bool showSkeletonChild =
-        isSelectedObject && currentSkeleton() != nullptr &&
+        isSelectedObject && !isSelectedCharacterVisual &&
+        currentSkeleton() != nullptr &&
         !currentSkeleton()->nodes.empty();
 
     const std::string label =
@@ -553,10 +591,11 @@ private:
     ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow |
                                ImGuiTreeNodeFlags_OpenOnDoubleClick |
                                ImGuiTreeNodeFlags_SpanAvailWidth;
-    if (!showSkeletonChild) {
+    if (!showSkeletonChild && !showCharacterVisualChild) {
       flags |= ImGuiTreeNodeFlags_Leaf;
     }
-    if (isSelectedObject && settings.selectedBoneIndex < 0) {
+    if (isSelectedObject && settings.selectedBoneIndex < 0 &&
+        !isSelectedCharacterVisual) {
       flags |= ImGuiTreeNodeFlags_Selected;
     }
     if (isSelectedObject) {
@@ -569,6 +608,45 @@ private:
     }
 
     if (open) {
+      if (showCharacterVisualChild) {
+        const SceneAssetInstance &sceneAsset =
+            bindings.sceneAssets[static_cast<size_t>(index)];
+        const std::string visualName =
+            sceneAsset.characterControllerConfig.visualAssetPath.empty()
+                ? "Visual Mesh"
+                : std::filesystem::path(
+                      sceneAsset.characterControllerConfig.visualAssetPath)
+                      .filename()
+                      .string();
+        const std::string childLabel =
+            visualName + "##character_visual_" + std::to_string(index);
+        const bool showVisualSkeleton =
+            isSelectedCharacterVisual && currentSkeleton() != nullptr &&
+            !currentSkeleton()->nodes.empty();
+        ImGuiTreeNodeFlags visualFlags = ImGuiTreeNodeFlags_OpenOnArrow |
+                                         ImGuiTreeNodeFlags_OpenOnDoubleClick |
+                                         ImGuiTreeNodeFlags_SpanAvailWidth;
+        if (!showVisualSkeleton) {
+          visualFlags |= ImGuiTreeNodeFlags_Leaf;
+        }
+        if (isSelectedCharacterVisual && settings.selectedBoneIndex < 0) {
+          visualFlags |= ImGuiTreeNodeFlags_Selected;
+        }
+        if (isSelectedCharacterVisual) {
+          visualFlags |= ImGuiTreeNodeFlags_DefaultOpen;
+        }
+        const bool visualOpen = ImGui::TreeNodeEx(childLabel.c_str(),
+                                                  visualFlags);
+        if (ImGui::IsItemClicked()) {
+          selectCharacterVisual(index);
+        }
+        if (visualOpen) {
+          if (showVisualSkeleton) {
+            buildSkeletonHierarchyNode();
+          }
+          ImGui::TreePop();
+        }
+      }
       if (showSkeletonChild) {
         buildSkeletonHierarchyNode();
       }
@@ -590,7 +668,8 @@ private:
     return terrainTargets;
   }
 
-  bool buildInstancedAssetPicker(SceneAssetInstance &sceneAsset) {
+  bool buildModelAssetPicker(std::string &assetPath,
+                             const char *comboLabel = "Asset") {
     const std::vector<std::filesystem::path> assetPaths = collectModelAssetPaths();
     if (assetPaths.empty()) {
       ImGui::TextUnformatted("No model assets found in assets/models");
@@ -600,7 +679,7 @@ private:
     int selectedAssetIndex = -1;
     for (int index = 0; index < static_cast<int>(assetPaths.size()); ++index) {
       if (assetPaths[static_cast<size_t>(index)].generic_string() ==
-          sceneAsset.assetPath) {
+          assetPath) {
         selectedAssetIndex = index;
         break;
       }
@@ -611,13 +690,13 @@ private:
             ? assetPaths[static_cast<size_t>(selectedAssetIndex)].filename().string()
             : std::string("<select asset>");
     bool changed = false;
-    if (ImGui::BeginCombo("Instance Asset", previewLabel.c_str())) {
+    if (ImGui::BeginCombo(comboLabel, previewLabel.c_str())) {
       for (int index = 0; index < static_cast<int>(assetPaths.size()); ++index) {
         const bool selected = index == selectedAssetIndex;
         const std::string label =
             assetPaths[static_cast<size_t>(index)].filename().string();
         if (ImGui::Selectable(label.c_str(), selected)) {
-          sceneAsset.assetPath = assetPaths[static_cast<size_t>(index)].generic_string();
+          assetPath = assetPaths[static_cast<size_t>(index)].generic_string();
           changed = true;
         }
         if (selected) {
@@ -627,10 +706,14 @@ private:
       ImGui::EndCombo();
     }
 
-    if (!sceneAsset.assetPath.empty()) {
-      ImGui::TextWrapped("Source: %s", sceneAsset.assetPath.c_str());
+    if (!assetPath.empty()) {
+      ImGui::TextWrapped("Source: %s", assetPath.c_str());
     }
     return changed;
+  }
+
+  bool buildInstancedAssetPicker(SceneAssetInstance &sceneAsset) {
+    return buildModelAssetPicker(sceneAsset.assetPath, "Instance Asset");
   }
 
   SceneEditorUIResult buildInstancedObjectInspector(size_t sceneAssetIndex,
@@ -968,6 +1051,36 @@ private:
     return result;
   }
 
+  SceneEditorUIResult
+  buildCharacterVisualInspector(SceneAssetInstance &sceneAsset) {
+    SceneEditorUIResult result;
+    CharacterControllerConfig &config = sceneAsset.characterControllerConfig;
+
+    ImGui::SeparatorText("Character Visual");
+    result.sceneGeometryChanged |=
+        buildModelAssetPicker(config.visualAssetPath, "Visual Asset");
+    ImGui::BeginDisabled(config.visualAssetPath.empty());
+    if (ImGui::Button("Clear Visual")) {
+      config.visualAssetPath.clear();
+      result.sceneAssetChanged = true;
+      result.sceneGeometryChanged = true;
+    }
+    ImGui::EndDisabled();
+
+    ImGui::SeparatorText("Local Transform");
+    bool transformChanged = false;
+    transformChanged |= ImGui::DragFloat3(
+        "Local Position", &config.visualLocalTransform.position.x, 0.01f);
+    transformChanged |= ImGui::SliderFloat3(
+        "Local Rotation", &config.visualLocalTransform.rotationDegrees.x,
+        -180.0f, 180.0f);
+    transformChanged |= ImGui::DragFloat3(
+        "Local Scale", &config.visualLocalTransform.scale.x, 0.1f, 0.01f,
+        200.0f);
+    result.sceneAssetChanged |= transformChanged;
+    return result;
+  }
+
   SceneEditorUIResult buildObjectInspector() {
     SceneEditorUIResult result;
     auto &settings = bindings.settings;
@@ -982,16 +1095,47 @@ private:
         selectedIndex < bindings.sceneAssets.size()
             ? &bindings.sceneAssets[selectedIndex]
             : nullptr;
+    const bool selectedCharacterVisual =
+        sceneAsset != nullptr &&
+        sceneAsset->kind == SceneAssetKind::CharacterController &&
+        settings.selectedCharacterVisualObjectIndex ==
+            static_cast<int>(selectedIndex);
 
     ImGui::Text("Object: %s",
-                object.name.empty() ? "<unnamed>" : object.name.c_str());
-    if (ImGui::Button("Remove From Scene")) {
+                selectedCharacterVisual
+                    ? "Character Visual"
+                    : (object.name.empty() ? "<unnamed>" : object.name.c_str()));
+    ImGui::BeginDisabled(selectedCharacterVisual);
+    const bool removeRequested = ImGui::Button("Remove From Scene");
+    ImGui::EndDisabled();
+    if (removeRequested) {
       removeSelectedSceneAsset();
       result.sceneAssetChanged = true;
       result.sceneGeometryChanged = true;
       return result;
     }
-    if (sceneAsset != nullptr &&
+    if (selectedCharacterVisual) {
+      const SceneEditorUIResult visualResult =
+          buildCharacterVisualInspector(*sceneAsset);
+      result.sceneAssetChanged |= visualResult.sceneAssetChanged;
+      result.sceneGeometryChanged |= visualResult.sceneGeometryChanged;
+      if (asset != nullptr) {
+        const std::string assetPath = asset->path();
+        ImGui::SeparatorText("Loaded Asset");
+        ImGui::Text("Asset: %s",
+                    std::filesystem::path(assetPath).filename().string().c_str());
+        if (!assetPath.empty()) {
+          ImGui::TextWrapped("Source: %s", assetPath.c_str());
+        }
+        if (const auto *skeleton = bindings.sceneModel.skeletonAsset();
+            skeleton != nullptr) {
+          ImGui::SeparatorText("Skeleton");
+          ImGui::Text("Nodes: %zu", skeleton->nodes.size());
+          ImGui::Text("Skins: %zu", skeleton->skins.size());
+          ImGui::Text("Animations: %zu", skeleton->animations.size());
+        }
+      }
+    } else if (sceneAsset != nullptr &&
         sceneAsset->kind == SceneAssetKind::InstancedObject) {
       const SceneEditorUIResult instancedResult =
           buildInstancedObjectInspector(selectedIndex, *sceneAsset);
@@ -1011,7 +1155,9 @@ private:
         ImGui::Text("Backing Asset: %s",
                     std::filesystem::path(assetPath).filename().string().c_str());
       }
-    } else if (asset != nullptr) {
+    } else if (asset != nullptr &&
+               (sceneAsset == nullptr ||
+                sceneAsset->kind != SceneAssetKind::CharacterController)) {
       const std::string assetPath = asset->path();
       ImGui::Text("Asset: %s",
                   std::filesystem::path(assetPath).filename().string().c_str());
@@ -1047,15 +1193,15 @@ private:
       }
     }
 
-    if (sceneAsset != nullptr &&
+    if (!selectedCharacterVisual && sceneAsset != nullptr &&
         sceneAsset->kind == SceneAssetKind::CharacterController) {
       result.sceneAssetChanged |=
           buildCharacterControllerInspector(selectedIndex, *sceneAsset);
     }
 
-    if (sceneAsset == nullptr ||
+    if (!selectedCharacterVisual && (sceneAsset == nullptr ||
         (sceneAsset->kind != SceneAssetKind::InstancedObject &&
-         sceneAsset->kind != SceneAssetKind::TerrainGrass)) {
+         sceneAsset->kind != SceneAssetKind::TerrainGrass))) {
       ImGui::SeparatorText("Transform");
       bool transformChanged = false;
       transformChanged |=
@@ -1074,7 +1220,10 @@ private:
     result.sceneAssetChanged |= terrainResult.assetChanged;
     result.sceneGeometryChanged |= terrainResult.geometryChanged;
 
-    if (asset == nullptr) {
+    if (asset == nullptr || (sceneAsset != nullptr &&
+                             sceneAsset->kind ==
+                                 SceneAssetKind::CharacterController &&
+                             !selectedCharacterVisual)) {
       return result;
     }
 
@@ -1418,6 +1567,74 @@ private:
       }
     }
     return std::nullopt;
+  }
+
+  std::string sceneObjectDisplayName(size_t index) const {
+    if (index >= bindings.settings.sceneObjects.size()) {
+      return "Scene Object " + std::to_string(index);
+    }
+    if (!bindings.settings.sceneObjects[index].name.empty()) {
+      return bindings.settings.sceneObjects[index].name;
+    }
+    if (index < bindings.sceneAssets.size()) {
+      return AppSceneController::sceneAssetName(bindings.sceneAssets[index],
+                                                index);
+    }
+    return "Scene Object " + std::to_string(index);
+  }
+
+  void captureLightFollowOffset(SceneLight &light) {
+    const std::optional<size_t> targetIndex =
+        sceneObjectIndexByName(light.followTargetName,
+                               bindings.settings.sceneObjects.size());
+    if (!targetIndex.has_value()) {
+      return;
+    }
+    light.followOffset =
+        light.position -
+        bindings.settings.sceneObjects[*targetIndex].transform.position;
+  }
+
+  void buildLightFollowInspector(SceneLight &light) {
+    if (light.type != SceneLightType::Point &&
+        light.type != SceneLightType::Spot) {
+      return;
+    }
+
+    ImGui::SeparatorText("Follow Target");
+    if (ImGui::Checkbox("Follow Target", &light.followTarget)) {
+      captureLightFollowOffset(light);
+    }
+
+    const std::string selectedName =
+        light.followTargetName.empty() ? "<none>" : light.followTargetName;
+    if (ImGui::BeginCombo("Target", selectedName.c_str())) {
+      const bool noTargetSelected = light.followTargetName.empty();
+      if (ImGui::Selectable("<none>", noTargetSelected)) {
+        light.followTargetName.clear();
+        light.followOffset = glm::vec3(0.0f);
+      }
+
+      const size_t objectCount =
+          std::min(bindings.sceneAssets.size(),
+                   bindings.settings.sceneObjects.size());
+      for (size_t index = 0; index < objectCount; ++index) {
+        const std::string targetName = sceneObjectDisplayName(index);
+        const bool selected = light.followTargetName == targetName;
+        if (ImGui::Selectable(targetName.c_str(), selected)) {
+          light.followTargetName = targetName;
+          captureLightFollowOffset(light);
+        }
+      }
+      ImGui::EndCombo();
+    }
+
+    ImGui::BeginDisabled(!light.followTarget);
+    ImGui::DragFloat3("Follow Offset", &light.followOffset.x, 0.05f);
+    if (ImGui::Button("Capture Current Offset")) {
+      captureLightFollowOffset(light);
+    }
+    ImGui::EndDisabled();
   }
 
   struct TerrainInspectorResult {
@@ -1891,6 +2108,8 @@ private:
       light.outerConeAngleRadians =
           std::max(light.outerConeAngleRadians, light.innerConeAngleRadians);
     }
+
+    buildLightFollowInspector(light);
 
     if (ImGui::Button("Remove From Scene")) {
       settings.sceneLights.remove(

@@ -543,6 +543,26 @@ private:
     }
   }
 
+  void updateSceneLightFollows() {
+    for (SceneLight &light : debugUiSettings.sceneLights.lights()) {
+      if ((light.type != SceneLightType::Point &&
+           light.type != SceneLightType::Spot) ||
+          !light.followTarget || light.followTargetName.empty()) {
+        continue;
+      }
+
+      const std::optional<size_t> targetIndex = sceneObjectIndexByName(
+          light.followTargetName, debugUiSettings.sceneObjects.size());
+      if (!targetIndex.has_value()) {
+        continue;
+      }
+
+      light.position =
+          debugUiSettings.sceneObjects[*targetIndex].transform.position +
+          light.followOffset;
+    }
+  }
+
   static glm::vec3
   clampSceneCameraFollowPosition(const SceneCameraConfig &config,
                                  const glm::vec3 &position) {
@@ -1303,6 +1323,7 @@ private:
     }
     updateCharacterControllerGamePlay(deltaSeconds);
     updateSceneCameraFollows(deltaSeconds);
+    updateSceneLightFollows();
     for (auto &sceneAssetModel : sceneAssetModels) {
       sceneAssetModel.updateAnimationPlayback(deltaSeconds);
     }

@@ -33,6 +33,7 @@ struct CharacterControllerConfig {
   bool limitEditMode = false;
   std::vector<glm::vec3> limitPoints;
   std::string visualAssetPath;
+  SceneTransform visualLocalTransform{};
 };
 
 struct CharacterControllerState {

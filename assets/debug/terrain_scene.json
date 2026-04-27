@@ -6,13 +6,13 @@
   "cameraFarPlane": 256.20001220703125,
   "cameraLookSensitivity": 0.0035000001080334187,
   "cameraMoveSpeed": 10.0,
-  "cameraPitchRadians": -0.9200618863105774,
+  "cameraPitchRadians": -0.4926513135433197,
   "cameraPosition": [
-    48.5023307800293,
-    83.72874450683594,
-    -90.71600341796875
+    17.57902717590332,
+    3.7448861598968506,
+    -57.67119598388672
   ],
-  "cameraYawRadians": 3.800464153289795,
+  "cameraYawRadians": -3.9463319778442383,
   "dielectricSpecularScale": 1.2929999828338623,
   "directionalShadowExtent": 13.329999923706055,
   "directionalShadowFarPlane": 24.0,
@@ -30131,14 +30131,31 @@
           -49.83838653564453
         ],
         "useStartPosition": true,
-        "visualAssetPath": ""
+        "visualAssetPath": "assets/models/monkey.glb",
+        "visualLocalTransform": {
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotationDegrees": [
+            0.0,
+            146.66700744628906,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        }
       },
       "characterControllerState": {
         "grounded": true,
         "position": [
-          36.50888442993164,
-          -3.5447206497192383,
-          -48.2278938293457
+          -7.213294506072998,
+          -3.5458168983459473,
+          -11.198613166809082
         ],
         "velocity": [
           0.0,
@@ -30172,9 +30189,9 @@
       "kind": 2,
       "name": "Character Controller",
       "position": [
-        36.50888442993164,
-        -3.5447206497192383,
-        -48.2278938293457
+        -7.213294506072998,
+        -3.5458168983459473,
+        -11.198613166809082
       ],
       "renderPrimaryTransform": true,
       "rotationDegrees": [
@@ -30261,9 +30278,9 @@
       "kind": 3,
       "name": "Camera",
       "position": [
-        18.31854248046875,
+        -25.411869049072266,
         2.602005958557129,
-        -55.46609878540039
+        -18.429943084716797
       ],
       "renderPrimaryTransform": true,
       "rotationDegrees": [
@@ -30382,7 +30399,44 @@
       "visible": true
     }
   ],
-  "sceneLights": [],
+  "sceneLights": [
+    {
+      "castsShadow": true,
+      "color": [
+        0.0,
+        1.0,
+        0.23308277130126953
+      ],
+      "direction": [
+        -0.4103148877620697,
+        -0.5195269584655762,
+        -0.749488890171051
+      ],
+      "enabled": true,
+      "exposure": 2.3420000076293945,
+      "followOffset": [
+        26.0,
+        10.5,
+        26.0
+      ],
+      "followTarget": true,
+      "followTargetName": "Camera",
+      "innerConeAngleRadians": 0.27490681409835815,
+      "name": "Debug Camera Spot Light",
+      "outerConeAngleRadians": 0.9209578633308411,
+      "position": [
+        0.5881309509277344,
+        13.102005958557129,
+        7.570056915283203
+      ],
+      "power": 93.0999984741211,
+      "radius": 0.25,
+      "range": 60.0,
+      "shadowBias": 9.999999747378752e-05,
+      "shadowNormalBias": 0.0,
+      "type": 2
+    }
+  ],
   "sceneObjects": [
     {
       "name": "Terrain",
@@ -30406,9 +30460,9 @@
     {
       "name": "Character Controller",
       "position": [
-        36.50888442993164,
-        -3.5447206497192383,
-        -48.2278938293457
+        -7.213294506072998,
+        -3.5458168983459473,
+        -11.198613166809082
       ],
       "rotationDegrees": [
         0.0,
@@ -30425,9 +30479,9 @@
     {
       "name": "Camera",
       "position": [
-        18.31854248046875,
+        -25.411869049072266,
         2.602005958557129,
-        -55.46609878540039
+        -18.429943084716797
       ],
       "rotationDegrees": [
         1.2654554843902588,
@@ -30464,10 +30518,11 @@
   "selectedAnimationIndex": -1,
   "selectedAnimationObjectIndex": -1,
   "selectedBoneIndex": -1,
-  "selectedLightIndex": -1,
+  "selectedCharacterVisualObjectIndex": -1,
+  "selectedLightIndex": 0,
   "selectedMaterialIndex": 0,
-  "selectedObjectIndex": 2,
-  "shadowsEnabled": false,
+  "selectedObjectIndex": 1,
+  "shadowsEnabled": true,
   "showBoneWeights": false,
   "skyboxVisible": true,
   "syncSkySunToLight": true,

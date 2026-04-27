@@ -1405,7 +1405,9 @@ private:
           deltaSeconds);
     }
     flushTerrainPaintMaterials();
-    updateCharacterControllerTerrainAnchors();
+    if (!gamePlayActive) {
+      updateCharacterControllerTerrainAnchors();
+    }
     if (gamePlayActive) {
       clearDebugOverlayMarkers();
     } else {

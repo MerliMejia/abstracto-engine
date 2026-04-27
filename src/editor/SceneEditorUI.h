@@ -1305,6 +1305,10 @@ private:
         ImGui::DragFloat("Half Height", &config.halfHeight, 0.01f, 0.01f, 8.0f);
     changed |=
         ImGui::DragFloat("Move Speed", &config.moveSpeed, 0.05f, 0.0f, 40.0f);
+    changed |=
+        ImGui::DragFloat("Jump Speed", &config.jumpSpeed, 0.05f, 0.0f, 40.0f);
+    changed |=
+        ImGui::DragFloat("Gravity", &config.gravity, 0.05f, 0.0f, 80.0f);
     changed |= ImGui::Checkbox("Camera Follow", &config.cameraFollow);
 
     if (config.radius < 0.01f) {
@@ -1315,6 +1319,12 @@ private:
     }
     if (config.moveSpeed < 0.0f) {
       config.moveSpeed = 0.0f;
+    }
+    if (config.jumpSpeed < 0.0f) {
+      config.jumpSpeed = 0.0f;
+    }
+    if (config.gravity < 0.0f) {
+      config.gravity = 0.0f;
     }
 
     ImGui::SeparatorText("Start Point");

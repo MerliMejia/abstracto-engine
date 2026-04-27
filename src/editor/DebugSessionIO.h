@@ -205,7 +205,8 @@ characterControllerConfigFromJson(const json &value) {
   config.halfHeight =
       std::max(value.value("halfHeight", config.halfHeight), 0.01f);
   config.moveSpeed = std::max(value.value("moveSpeed", config.moveSpeed), 0.0f);
-  config.jumpSpeed = value.value("jumpSpeed", config.jumpSpeed);
+  config.jumpSpeed =
+      std::max(value.value("jumpSpeed", config.jumpSpeed), 0.0f);
   config.gravity = std::max(value.value("gravity", config.gravity), 0.0f);
   config.maxSlopeDegrees = glm::clamp(
       value.value("maxSlopeDegrees", config.maxSlopeDegrees), 0.0f, 89.0f);

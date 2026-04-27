@@ -6,13 +6,13 @@
   "cameraFarPlane": 256.20001220703125,
   "cameraLookSensitivity": 0.0035000001080334187,
   "cameraMoveSpeed": 10.0,
-  "cameraPitchRadians": -0.4926513135433197,
+  "cameraPitchRadians": -0.2751447558403015,
   "cameraPosition": [
-    17.57902717590332,
-    3.7448861598968506,
-    -57.67119598388672
+    9.085795402526855,
+    12.92709732055664,
+    -71.05775451660156
   ],
-  "cameraYawRadians": -3.9463319778442383,
+  "cameraYawRadians": -2.750342607498169,
   "dielectricSpecularScale": 1.2929999828338623,
   "directionalShadowExtent": 13.329999923706055,
   "directionalShadowFarPlane": 24.0,
@@ -84,7 +84,7 @@
   ],
   "pbrDebugView": 0,
   "presentedOutput": 7,
-  "runtimeState": 1,
+  "runtimeState": 0,
   "sceneAssets": [
     {
       "assetPath": "",
@@ -29767,9 +29767,9 @@
       "characterControllerConfig": {
         "alignToGroundNormal": true,
         "cameraFollow": true,
-        "gravity": 18.0,
+        "gravity": 36.0,
         "halfHeight": 0.550000011920929,
-        "jumpSpeed": 4.5,
+        "jumpSpeed": 16.5,
         "limitPoints": [
           [
             48.38495635986328,
@@ -30123,7 +30123,7 @@
           ]
         ],
         "maxSlopeDegrees": 45.0,
-        "moveSpeed": 3.5,
+        "moveSpeed": 9.699999809265137,
         "radius": 0.3499999940395355,
         "startPosition": [
           44.555667877197266,
@@ -30153,9 +30153,9 @@
       "characterControllerState": {
         "grounded": true,
         "position": [
-          -7.213294506072998,
-          -3.5458168983459473,
-          -11.198613166809082
+          43.53495407104492,
+          -3.5447206497192383,
+          -50.211326599121094
         ],
         "velocity": [
           0.0,
@@ -30189,9 +30189,9 @@
       "kind": 2,
       "name": "Character Controller",
       "position": [
-        -7.213294506072998,
-        -3.5458168983459473,
-        -11.198613166809082
+        43.53495407104492,
+        -3.5447206497192383,
+        -50.211326599121094
       ],
       "renderPrimaryTransform": true,
       "rotationDegrees": [
@@ -30278,9 +30278,9 @@
       "kind": 3,
       "name": "Camera",
       "position": [
-        -25.411869049072266,
+        25.343833923339844,
         2.602005958557129,
-        -18.429943084716797
+        -57.44546127319336
       ],
       "renderPrimaryTransform": true,
       "rotationDegrees": [
@@ -30408,9 +30408,9 @@
         0.23308277130126953
       ],
       "direction": [
-        -0.4103148877620697,
-        -0.5195269584655762,
-        -0.749488890171051
+        -0.4103148281574249,
+        -0.5195268988609314,
+        -0.7494888305664063
       ],
       "enabled": true,
       "exposure": 2.3420000076293945,
@@ -30425,9 +30425,9 @@
       "name": "Debug Camera Spot Light",
       "outerConeAngleRadians": 0.9209578633308411,
       "position": [
-        0.5881309509277344,
+        51.343833923339844,
         13.102005958557129,
-        7.570056915283203
+        -31.44546127319336
       ],
       "power": 93.0999984741211,
       "radius": 0.25,
@@ -30460,9 +30460,9 @@
     {
       "name": "Character Controller",
       "position": [
-        -7.213294506072998,
-        -3.5458168983459473,
-        -11.198613166809082
+        43.53495407104492,
+        -3.5447206497192383,
+        -50.211326599121094
       ],
       "rotationDegrees": [
         0.0,
@@ -30479,9 +30479,9 @@
     {
       "name": "Camera",
       "position": [
-        -25.411869049072266,
+        25.343833923339844,
         2.602005958557129,
-        -18.429943084716797
+        -57.44546127319336
       ],
       "rotationDegrees": [
         1.2654554843902588,
@@ -30519,7 +30519,7 @@
   "selectedAnimationObjectIndex": -1,
   "selectedBoneIndex": -1,
   "selectedCharacterVisualObjectIndex": -1,
-  "selectedLightIndex": 0,
+  "selectedLightIndex": -1,
   "selectedMaterialIndex": 0,
   "selectedObjectIndex": 1,
   "shadowsEnabled": true,

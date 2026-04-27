@@ -258,6 +258,27 @@ public:
     SceneAssetInstance &characterAsset = context.sceneAssets[*characterIndex];
     SceneObject &characterObject =
         context.debugUiSettings.sceneObjects[*characterIndex];
+    CharacterControllerConfig &config =
+        characterAsset.characterControllerConfig;
+    CharacterControllerState &state =
+        characterAsset.characterControllerState;
+
+    const float supportOffset = config.radius + config.halfHeight;
+    const auto currentSurfaceSample =
+        sampleTerrainSurfaceAtWorldPosition(context, state.position);
+    if (currentSurfaceSample.has_value()) {
+      const float groundY = currentSurfaceSample->worldPosition.y + supportOffset;
+      if (state.position.y <= groundY + 0.05f && state.velocity.y <= 0.0f) {
+        state.position.y = groundY;
+        state.velocity.y = 0.0f;
+        state.grounded = true;
+      } else {
+        state.grounded = false;
+      }
+    } else {
+      state.grounded = false;
+    }
+
     glm::vec3 moveInput(0.0f);
     if (glfwGetKey(context.window.handle(), GLFW_KEY_W) == GLFW_PRESS) {
       moveInput.z += 1.0f;
@@ -272,43 +293,59 @@ public:
       moveInput.x -= 1.0f;
     }
 
-    if (glm::length(moveInput) <= 1e-4f) {
-      characterAsset.characterControllerState.velocity = glm::vec3(0.0f);
-      characterAsset.characterControllerState.grounded =
-          sampleTerrainSurfaceAtWorldPosition(
-              context, characterAsset.characterControllerState.position)
-              .has_value();
-      context.sceneDefinition.assets = context.sceneAssets;
-      return;
+    if (state.grounded &&
+        glfwGetKey(context.window.handle(), GLFW_KEY_SPACE) == GLFW_PRESS) {
+      state.velocity.y = config.jumpSpeed;
+      state.grounded = false;
     }
 
-    moveInput = glm::normalize(moveInput);
-    glm::vec3 forward(context.cameraForward.x, 0.0f, context.cameraForward.z);
-    if (glm::length(forward) <= 1e-4f) {
-      forward = glm::vec3(std::sin(characterAsset.characterControllerState.yawRadians),
-                          0.0f,
-                          -std::cos(characterAsset.characterControllerState.yawRadians));
+    glm::vec3 horizontalVelocity(0.0f);
+    if (glm::length(moveInput) > 1e-4f) {
+      moveInput = glm::normalize(moveInput);
+      glm::vec3 forward(context.cameraForward.x, 0.0f, context.cameraForward.z);
+      if (glm::length(forward) <= 1e-4f) {
+        forward = glm::vec3(std::sin(state.yawRadians), 0.0f,
+                            -std::cos(state.yawRadians));
+      }
+      forward = glm::normalize(forward);
+      const glm::vec3 right =
+          glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
+      const glm::vec3 moveDirection =
+          glm::normalize((right * moveInput.x) + (forward * moveInput.z));
+      horizontalVelocity = moveDirection * config.moveSpeed;
     }
-    forward = glm::normalize(forward);
-    const glm::vec3 right =
-        glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
-    const glm::vec3 moveDirection =
-        glm::normalize((right * moveInput.x) + (forward * moveInput.z));
-    const float moveStep =
-        characterAsset.characterControllerConfig.moveSpeed * deltaSeconds;
 
-    const glm::vec3 previousPosition =
-        characterAsset.characterControllerState.position;
-    const glm::vec3 desiredPosition =
-        previousPosition + moveDirection * moveStep;
-    characterAsset.characterControllerState.position =
-        constrainedByLimits(characterAsset, previousPosition, desiredPosition);
-    characterAsset.characterControllerState.velocity =
-        moveDirection * characterAsset.characterControllerConfig.moveSpeed;
-    characterAsset.transform.position =
-        characterAsset.characterControllerState.position;
+    if (!state.grounded || state.velocity.y > 0.0f) {
+      state.velocity.y -= config.gravity * deltaSeconds;
+    }
+    state.velocity.x = horizontalVelocity.x;
+    state.velocity.z = horizontalVelocity.z;
+
+    const glm::vec3 previousPosition = state.position;
+    glm::vec3 desiredPosition = previousPosition + state.velocity * deltaSeconds;
+    const glm::vec3 constrainedHorizontalPosition =
+        constrainedByLimits(characterAsset, previousPosition,
+                            glm::vec3(desiredPosition.x, previousPosition.y,
+                                      desiredPosition.z));
+    desiredPosition.x = constrainedHorizontalPosition.x;
+    desiredPosition.z = constrainedHorizontalPosition.z;
+
+    const auto desiredSurfaceSample =
+        sampleTerrainSurfaceAtWorldPosition(context, desiredPosition);
+    if (desiredSurfaceSample.has_value()) {
+      const float groundY = desiredSurfaceSample->worldPosition.y + supportOffset;
+      if (desiredPosition.y <= groundY && state.velocity.y <= 0.0f) {
+        desiredPosition.y = groundY;
+        state.velocity.y = 0.0f;
+        state.grounded = true;
+      } else {
+        state.grounded = false;
+      }
+    }
+
+    state.position = desiredPosition;
+    characterAsset.transform.position = state.position;
     characterObject.transform = characterAsset.transform;
-    snapCharacterControllerToTerrain(context, *characterIndex);
     context.sceneDefinition.assets = context.sceneAssets;
   }
 
